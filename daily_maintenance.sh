@@ -11,9 +11,16 @@ export PATH="/Users/a04258/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 
-BOT_KEY="8585859981:AAEOTnOnk6qmBTOPrwYyVNaR-IY3Zwx6X7c"
-CHAT_ID="204089935"
-LOG_DIR="$HOME/.cokacdir/workspace/admin/logs"
+# .env 파일 로드 (스크립트와 같은 경로)
+ENV_FILE="$(dirname "$0")/.env"
+if [ -f "$ENV_FILE" ]; then
+    source "$ENV_FILE"
+fi
+
+# 변수 설정 (기본값 설정 포함)
+BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
+CHAT_ID="${MAINTENANCE_CHAT_ID:-}"
+LOG_DIR="${LOG_STAGING_DIR:-$HOME/Project/Daily-Maintenance/logs}"
 LOG_FILE="$LOG_DIR/maintenance_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 NL=$'\n'
@@ -132,7 +139,7 @@ fi
 # ── 5. pip 핵심 패키지 업데이트 ───────────────────────────
 section "pip 핵심 패키지"
 # 시스템 패키지 제외, 주요 사용 패키지만 업데이트
-PIP_PACKAGES=(boto3 botocore requests urllib3 certifi anthropic tavily-python pycryptodome pandas websockets)
+PIP_PACKAGES=( ${PIP_TARGET_PACKAGES:-boto3 botocore requests urllib3 certifi anthropic tavily-python pycryptodome pandas websockets} )
 pip_updated=0
 for pkg in "${PIP_PACKAGES[@]}"; do
     latest=$(pip3 index versions "$pkg" 2>/dev/null | sed -n 's/.*Available versions: \([^,]*\).*/\1/p' | head -1)
@@ -162,12 +169,7 @@ fi
 section "Docker 이미지"
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     # public 이미지만 pull (custom 빌드 이미지 제외)
-    PUBLIC_IMAGES=(
-        "nginx:alpine"
-        "portainer/portainer-ce:latest"
-        "portainer/agent:latest"
-        "lipanski/docker-static-website:latest"
-    )
+    PUBLIC_IMAGES=( ${DOCKER_TARGET_IMAGES:-"nginx:alpine" "portainer/portainer-ce:latest" "portainer/agent:latest" "lipanski/docker-static-website:latest"} )
     docker_updated=0
     for img in "${PUBLIC_IMAGES[@]}"; do
         old_id=$(docker inspect --format '{{.Id}}' "$img" 2>/dev/null || echo "")
@@ -193,7 +195,7 @@ fi
 
 # ── 6-2. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
-PROJECT_DIR="$HOME/Project"
+PROJECT_DIR="${USER_PROJECT_DIR:-$HOME/Project}"
 git_pulled=()
 git_pull_failed=()
 git_ahead=()
