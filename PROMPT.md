@@ -7,9 +7,11 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 
 ### 1. 환경 설정 및 초기화
 - `set -uo pipefail`로 오류 발생 시 중단 및 변수 엄격 체크.
-- `PATH`는 `/opt/homebrew/bin`, `~/.local/bin` 등을 포함하도록 설정.
-- `nvm` 및 `conda.sh`를 소싱하여 관련 명령어가 사용 가능한 상태로 환경을 구성.
 - `.env` 파일이 존재할 경우 `source`하여 환경 변수를 로드합니다.
+- `HOME`과 `PATH`는 `.env`에 정의된 `MAINTENANCE_HOME`, `MAINTENANCE_PATH`를 우선 반영하며, 하드코딩된 개인 경로는 절대 사용하지 않습니다.
+- 모든 외부 도구(brew, docker 등) 실행 전 `command -v`를 통해 설치 여부를 확인하고, 미설치 시 건너뜀 목록에 추가합니다.
+- `sudo` 권한이 필요한 작업 전 가용성을 체크하고, 권한 부족 시 `visudo` 설정 가이드를 콘솔에 출력합니다.
+- `nvm` 및 `MAINTENANCE_CONDA_SH`를 소싱하여 관련 명령어가 사용 가능한 상태로 환경을 구성.
 
 ### 2. 패키지 및 AI 도구 관리
 - **macOS (Homebrew)**: `update`, `upgrade`, `upgrade --greedy` 수행 후 `autoremove`, `cleanup` 정리.
