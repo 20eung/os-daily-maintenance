@@ -177,7 +177,7 @@ if command -v docker-compose &>/dev/null && command -v docker &>/dev/null; then
             } || log "$project_name pull 실패"
         ) || log "$project_name 진입 실패"
     done < <(find "$USER_PROJECT_DIR" -maxdepth 2 -name "docker-compose.yml" -type f 2>/dev/null | sort)
-    docker image prune -f -q 2>>"$LOG_FILE"
+    docker image prune -f 2>>"$LOG_FILE"
     [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
 else
     log "Docker 또는 Docker Compose 미실행/미설치 — 건너뜈"

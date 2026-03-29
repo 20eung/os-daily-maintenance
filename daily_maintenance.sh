@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────
 # daily_maintenance.sh
-# 매일 09:00 macOS 전체 업데이트 점검 및 자동 업그레이드
+# macOS 시스템 일일 점검 및 자동 업데이트
 # ─────────────────────────────────────────────────────────
 
 set -uo pipefail
@@ -38,6 +38,10 @@ LOG_FILE="$LOG_STAGING_DIR/maintenance_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 NL=$'\n'
 
+# 시스템 모니터링 임계값 (기본값)
+DISK_USAGE_THRESHOLD="${DISK_USAGE_THRESHOLD:-80}"
+MEMORY_USAGE_THRESHOLD="${MEMORY_USAGE_THRESHOLD:-85}"
+
 # 텔레그램 설정 누락 시 경고 (단, 로깅은 계속 진행)
 if [ -z "$MAINTENANCE_BOT_KEY" ] || [ -z "$MAINTENANCE_CHAT_ID" ]; then
     echo "WARNING: Telegram BOT_KEY or CHAT_ID is missing in .env. Notifications will be skipped." >&2
@@ -64,6 +68,7 @@ section() { echo "" >> "$LOG_FILE"; log "━━━ $1 ━━━"; }
 
 # 텔레그램 전송
 send_msg() {
+    [ -z "$MAINTENANCE_BOT_KEY" ] || [ -z "$MAINTENANCE_CHAT_ID" ] && return
     curl -s -X POST "https://api.telegram.org/bot${MAINTENANCE_BOT_KEY}/sendMessage" \
         --data-urlencode "chat_id=${MAINTENANCE_CHAT_ID}" \
         --data-urlencode "text=$1" \
@@ -71,7 +76,7 @@ send_msg() {
 }
 
 {
-log "=== 시스템 일일 점검 시작: $TIMESTAMP ==="
+log "=== macOS 시스템 일일 점검 시작: $TIMESTAMP ==="
 
 RESULTS=()
 UPDATED=()
@@ -193,27 +198,20 @@ else
     SKIPPED+=("npm")
 fi
 
-# ── 5. pip 핵심 패키지 업데이트 ───────────────────────────
-section "pip 핵심 패키지"
+# ── 5. pip 설치된 패키지 업데이트 ─────────────────────────
+section "pip 설치된 패키지"
+pip_updated=0
 if command -v pip3 &>/dev/null; then
-    PIP_PACKAGES=( ${PIP_TARGET_PACKAGES:-boto3 botocore requests urllib3 certifi anthropic tavily-python pycryptodome pandas websockets} )
-    pip_updated=0
-    for pkg in "${PIP_PACKAGES[@]}"; do
-        latest=$(pip3 index versions "$pkg" 2>/dev/null | sed -n 's/.*Available versions: \([^,]*\).*/\1/p' | head -1)
-        current=$(pip3 show "$pkg" 2>/dev/null | grep Version | awk '{print $2}')
-        if [ -n "$current" ] && [ -n "$latest" ] && [ "$current" != "$latest" ]; then
+    while IFS= read -r line; do
+        pkg=$(echo "$line" | awk '{print $1}')
+        if [ -n "$pkg" ]; then
             pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
-                log "$pkg: $current → $latest"
+                log "$pkg 업그레이드 완료"
                 pip_updated=$((pip_updated+1))
-            }
+            } || log "$pkg 업그레이드 실패"
         fi
-    done
-    if [ "$pip_updated" -gt 0 ]; then
-        UPDATED+=("pip ${pip_updated}개")
-    else
-        log "pip 핵심 패키지 최신 상태"
-        RESULTS+=("pip: 최신")
-    fi
+    done < <(pip3 list --outdated 2>/dev/null | tail -n +3)
+    [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
 else
     log "pip3 미설치 — 건너뜀"
     SKIPPED+=("pip3")
@@ -221,40 +219,48 @@ fi
 
 # ── 6. Docker 업데이트 ─────────────────────────────────────
 # 6-1. Docker Desktop 앱 업데이트 (4.38+ 지원)
-if command -v docker &>/dev/null && docker desktop update --help &>/dev/null; then
+if command -v docker &>/dev/null && docker desktop update --help &>/dev/null 2>&1; then
     DOCKER_APP_VER=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null || echo "unknown")
     log "현재 Docker Desktop 앱 버전: $DOCKER_APP_VER"
     docker desktop update -q 2>>"$LOG_FILE" && log "Docker Desktop 앱 업데이트 체크 완료"
 fi
 
-section "Docker 이미지"
+# 6-2. Docker Compose 프로젝트 자동 감지 및 업데이트
+section "Docker Compose 프로젝트"
+docker_updated=0
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-    # public 이미지만 pull (custom 빌드 이미지 제외)
-    PUBLIC_IMAGES=( ${DOCKER_TARGET_IMAGES:-"nginx:alpine" "portainer/portainer-ce:latest" "portainer/agent:latest" "lipanski/docker-static-website:latest"} )
-    docker_updated=0
-    for img in "${PUBLIC_IMAGES[@]}"; do
-        old_id=$(docker inspect --format '{{.Id}}' "$img" 2>/dev/null || echo "")
-        pull_out=$(docker pull "$img" 2>&1)
-        new_id=$(docker inspect --format '{{.Id}}' "$img" 2>/dev/null || echo "")
-        if [ -n "$old_id" ] && [ "$old_id" != "$new_id" ]; then
-            log "업데이트: $img"
-            docker_updated=$((docker_updated+1))
-        else
-            log "최신: $img"
-        fi
-    done
-    docker image prune -f -q 2>>"$LOG_FILE"
-    if [ "$docker_updated" -gt 0 ]; then
-        UPDATED+=("Docker 이미지 ${docker_updated}개")
+    DOCKER_COMPOSE_CMD=""
+    if command -v docker-compose &>/dev/null; then
+        DOCKER_COMPOSE_CMD="docker-compose"
+    elif docker compose version &>/dev/null 2>&1; then
+        DOCKER_COMPOSE_CMD="docker compose"
+    fi
+
+    if [ -n "$DOCKER_COMPOSE_CMD" ]; then
+        while IFS= read -r compose_file; do
+            project_dir=$(dirname "$compose_file")
+            project_name=$(basename "$project_dir")
+            log "점검: $project_name"
+            (
+                cd "$project_dir" || exit
+                $DOCKER_COMPOSE_CMD pull 2>>"$LOG_FILE" && {
+                    $DOCKER_COMPOSE_CMD up -d 2>>"$LOG_FILE" && log "$project_name 업데이트 완료" || log "$project_name 재시작 실패"
+                    docker_updated=$((docker_updated+1))
+                } || log "$project_name pull 실패"
+            ) || log "$project_name 진입 실패"
+        done < <(find "$USER_PROJECT_DIR" -maxdepth 2 -name "docker-compose.yml" -type f 2>/dev/null | sort)
+        docker image prune -f 2>>"$LOG_FILE"
+        [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
     else
-        RESULTS+=("Docker: 최신")
+        log "Docker Compose 미설치 — 건너뜀"
+        SKIPPED+=("Docker Compose")
     fi
 else
     log "Docker 미실행 또는 미설치 — 건너뜀"
     SKIPPED+=("Docker")
 fi
 
-# ── 6-2. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
+# ── 7. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
 if command -v git &>/dev/null; then
     git_pulled=()
@@ -331,14 +337,38 @@ else
     SKIPPED+=("conda")
 fi
 
-# ── 9. 디스크 상태 확인 ───────────────────────────────────
-section "디스크 상태"
-df -h / 2>/dev/null
+# ── 9. 시스템 상태 확인 ───────────────────────────────────
+section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
 log "루트 파티션 사용률: ${DISK_USAGE}%"
-[ "$DISK_USAGE" -gt 80 ] && ERRORS+=("디스크 ${DISK_USAGE}% 경고")
+[ "$DISK_USAGE" -gt "$DISK_USAGE_THRESHOLD" ] && ERRORS+=("디스크 ${DISK_USAGE}% 경고")
 
-# ── 10. macOS 시스템 업데이트 확인 (보고만) ───────────────
+# 메모리 사용률 (macOS: vm_stat 기반)
+MEM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+if [ "$MEM_TOTAL" -gt 0 ]; then
+    PAGE_SIZE=$(vm_stat 2>/dev/null | awk '/page size of/{print $8}')
+    PAGE_SIZE="${PAGE_SIZE:-4096}"
+    PAGES_FREE=$(vm_stat 2>/dev/null | awk '/Pages free/{gsub(/\./,"",$3); print $3}')
+    PAGES_INACTIVE=$(vm_stat 2>/dev/null | awk '/Pages inactive/{gsub(/\./,"",$3); print $3}')
+    PAGES_FREE="${PAGES_FREE:-0}"
+    PAGES_INACTIVE="${PAGES_INACTIVE:-0}"
+    MEM_FREE_BYTES=$(( (PAGES_FREE + PAGES_INACTIVE) * PAGE_SIZE ))
+    MEM_USAGE=$(( (MEM_TOTAL - MEM_FREE_BYTES) * 100 / MEM_TOTAL ))
+    log "메모리 사용률: ${MEM_USAGE}%"
+    [ "$MEM_USAGE" -gt "$MEMORY_USAGE_THRESHOLD" ] && ERRORS+=("메모리 ${MEM_USAGE}% 경고")
+fi
+
+# ── 10. 네트워크 연결 상태 확인 ──────────────────────────
+section "네트워크 연결"
+if ping -c 1 8.8.8.8 &>/dev/null 2>&1; then
+    log "네트워크 연결: 정상"
+    RESULTS+=("네트워크: 정상")
+else
+    log "네트워크 연결 실패"
+    ERRORS+=("네트워크 연결 실패")
+fi
+
+# ── 11. macOS 시스템 업데이트 확인 (보고만) ───────────────
 section "macOS 시스템 업데이트"
 SW_LIST=$(softwareupdate -l 2>&1)
 SW_COUNT=$(echo "$SW_LIST" | grep -c '^\*' || true)
@@ -351,7 +381,18 @@ else
     RESULTS+=("macOS: 최신")
 fi
 
-# ── 11. 로그 파일 정리 (30일 이상 된 것 삭제) ────────────
+# ── 12. Orphaned 프로세스 확인 ────────────────────────────
+section "Orphaned 프로세스"
+zombie_count=$(ps aux 2>/dev/null | grep -c " <defunct>" || echo 0)
+if [ "$zombie_count" -gt 1 ]; then  # grep 자신 제외
+    log "Orphaned 프로세스: ${zombie_count}개 감지"
+    RESULTS+=("Orphaned 프로세스 ${zombie_count}개 감지됨")
+else
+    log "Orphaned 프로세스: 없음"
+    RESULTS+=("Orphaned 프로세스: 없음")
+fi
+
+# ── 13. 로그 파일 정리 (30일 이상 된 것 삭제) ────────────
 section "로그 정리"
 
 # 프로젝트 로그 및 시스템 로그 정리
@@ -385,34 +426,18 @@ fi
 log "전체 로그 정리 완료"
 [ "$freed" -gt 0 ] && UPDATED+=("로그 정리 ${freed}MB 확보") || RESULTS+=("로그: 정리 완료")
 
-# ── 12. 텔레그램 보고 ─────────────────────────────────────
+# ── 14. 텔레그램 보고 ─────────────────────────────────────
 log ""
 log "=== 점검 완료 ==="
+HOSTNAME=$(hostname)
 
-MSG="🔧 MacBook M1 Pro 일일 점검 완료
+MSG="🔧 $HOSTNAME 일일 점검 완료
 📅 $(date '+%Y-%m-%d %H:%M')
 ━━━━━━━━━━━━━━━"
 
-if [ ${#UPDATED[@]} -gt 0 ]; then
-    MSG+="${NL}✅ 업데이트됨:"
-    for item in "${UPDATED[@]}"; do
-        MSG+="${NL}  ▪ $item"
-    done
-fi
-
-if [ ${#RESULTS[@]} -gt 0 ]; then
-    MSG+="${NL}✔ 최신 상태:"
-    for item in "${RESULTS[@]}"; do
-        MSG+="${NL}  ▪ $item"
-    done
-fi
-
-if [ ${#ERRORS[@]} -gt 0 ]; then
-    MSG+="${NL}⚠️ 오류/경고:"
-    for item in "${ERRORS[@]}"; do
-        MSG+="${NL}  ▪ $item"
-    done
-fi
+[ ${#UPDATED[@]} -gt 0 ] && { MSG+="${NL}✅ 업데이트됨:"; for i in "${UPDATED[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+[ ${#RESULTS[@]} -gt 0 ] && { MSG+="${NL}✔ 최신 상태:"; for i in "${RESULTS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+[ ${#ERRORS[@]} -gt 0 ]  && { MSG+="${NL}⚠️ 오류/경고:"; for i in "${ERRORS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
 
 if [ ${#SKIPPED[@]} -gt 0 ]; then
     MSG+="${NL}⏭️ 건너뜀 (미설치):"
