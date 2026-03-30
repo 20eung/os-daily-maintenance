@@ -183,7 +183,7 @@ if command -v docker-compose &>/dev/null && command -v docker &>/dev/null; then
                 docker_updated=$((docker_updated+1))
             } || log "$project_name pull 실패"
         ) || log "$project_name 진입 실패"
-    done < <(find "$USER_PROJECT_DIR" -maxdepth 2 -name "docker-compose.yml" -type f 2>/dev/null | sort)
+    done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
     docker image prune -f 2>>"$LOG_FILE"
     [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
 else
@@ -212,7 +212,7 @@ if command -v git &>/dev/null; then
                 fi
             fi
         fi
-    done < <(find "$USER_PROJECT_DIR" -maxdepth 2 -name ".git" -type d 2>/dev/null | sed 's|/.git||' | sort)
+    done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
     [ ${#git_pulled[@]} -gt 0 ] && UPDATED+=("Git pull: ${#git_pulled[@]}개")
 else
     log "git 미설치 — 건너뜀"
