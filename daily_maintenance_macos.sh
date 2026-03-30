@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────
-# daily_maintenance.sh
+# daily_maintenance_macos.sh
 # macOS 시스템 일일 점검 및 자동 업데이트
 # ─────────────────────────────────────────────────────────
 
 set -uo pipefail
 
 # ─────────────────────────────────────────────────────────
-# .env 파일 로드 (스크립트와 같은 경로)
+# 환경 설정 로드 (순서: .env -> .env.os -> .env.local)
 # ─────────────────────────────────────────────────────────
-ENV_FILE="$(dirname "$0")/.env"
-if [ -f "$ENV_FILE" ]; then
-    # shellcheck source=/dev/null
-    source "$ENV_FILE"
-fi
+SCRIPT_DIR="$(dirname "$0")"
+
+# 1. 공통 설정
+[ -f "$SCRIPT_DIR/.env" ] && source "$SCRIPT_DIR/.env"
+
+# 2. OS 전용 설정 (darwin/linux)
+OS_TYPE=$(uname | tr '[:upper:]' '[:lower:]')
+[ -f "$SCRIPT_DIR/.env.${OS_TYPE}" ] && source "$SCRIPT_DIR/.env.${OS_TYPE}"
+
+# 3. 머신별 로컬 설정 (있을 경우 최우선)
+[ -f "$SCRIPT_DIR/.env.local" ] && source "$SCRIPT_DIR/.env.local"
 
 # ─────────────────────────────────────────────────────────
 # 환경 설정 및 초기화
@@ -32,15 +38,18 @@ export NVM_DIR="$HOME/.nvm"
 # 변수 설정 (기본값 설정 포함)
 MAINTENANCE_BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
 MAINTENANCE_CHAT_ID="${MAINTENANCE_CHAT_ID:-}"
-USER_PROJECT_DIR="${USER_PROJECT_DIR:-$HOME/Project}"
-LOG_STAGING_DIR="${LOG_STAGING_DIR:-$USER_PROJECT_DIR/Daily-Maintenance/logs}"
-LOG_FILE="$LOG_STAGING_DIR/maintenance_$(date +%Y%m%d).log"
+# 프로젝트들의 상위 디렉토리 목록 (여러 개인 경우 공백으로 구분)
+USER_PROJECT_DIRS="${USER_PROJECT_DIRS:-${USER_PROJECT_DIR:-$HOME/Project}}"
+LOG_STAGING_DIR="${LOG_STAGING_DIR:-$HOME/Project/Daily-Maintenance/logs}"
+LOG_FILE="$LOG_STAGING_DIR/maintenance_macos_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 NL=$'\n'
 
 # 시스템 모니터링 임계값 (기본값)
 DISK_USAGE_THRESHOLD="${DISK_USAGE_THRESHOLD:-80}"
 MEMORY_USAGE_THRESHOLD="${MEMORY_USAGE_THRESHOLD:-85}"
+CPU_TEMP_THRESHOLD="${CPU_TEMP_THRESHOLD:-80}"
+DISK_TEMP_THRESHOLD="${DISK_TEMP_THRESHOLD:-55}"
 
 # 텔레그램 설정 누락 시 경고 (단, 로깅은 계속 진행)
 if [ -z "$MAINTENANCE_BOT_KEY" ] || [ -z "$MAINTENANCE_CHAT_ID" ]; then
@@ -237,10 +246,12 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     fi
 
     if [ -n "$DOCKER_COMPOSE_CMD" ]; then
+        # 모든 프로젝트 디렉토리 순회하며 docker-compose.yml 탐색
         while IFS= read -r compose_file; do
+            [ -z "$compose_file" ] && continue
             project_dir=$(dirname "$compose_file")
             project_name=$(basename "$project_dir")
-            log "점검: $project_name"
+            log "Docker 점검: $project_name"
             (
                 cd "$project_dir" || exit
                 $DOCKER_COMPOSE_CMD pull 2>>"$LOG_FILE" && {
@@ -248,7 +259,8 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
                     docker_updated=$((docker_updated+1))
                 } || log "$project_name pull 실패"
             ) || log "$project_name 진입 실패"
-        done < <(find "$USER_PROJECT_DIR" -maxdepth 2 -name "docker-compose.yml" -type f 2>/dev/null | sort)
+        done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
+        
         docker image prune -f 2>>"$LOG_FILE"
         [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
     else
@@ -358,6 +370,43 @@ if [ "$MEM_TOTAL" -gt 0 ]; then
     [ "$MEM_USAGE" -gt "$MEMORY_USAGE_THRESHOLD" ] && ERRORS+=("메모리 ${MEM_USAGE}% 경고")
 fi
 
+# ── 9-1. 시스템 온도 확인 (macOS 전용) ───────────────────
+# CPU 온도 (osx-cpu-temp 설치 시)
+if command -v osx-cpu-temp &>/dev/null; then
+    CPU_TEMP=$(osx-cpu-temp | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$CPU_TEMP" ]; then
+        log "CPU 온도: ${CPU_TEMP}°C"
+        if (( $(echo "$CPU_TEMP > $CPU_TEMP_THRESHOLD" | bc -l) )); then
+            ERRORS+=("CPU 온도 ${CPU_TEMP}°C 경고")
+        fi
+    fi
+fi
+
+# 디스크 온도 (smartctl 설치 시)
+if command -v smartctl &>/dev/null; then
+    DISK_TEMP=$(sudo smartctl -a /dev/disk0 2>/dev/null | awk '/Temperature:|Air_Flow_Temperature|Temperature_Celsius/{print $NF}' | head -1)
+    if [ -n "$DISK_TEMP" ]; then
+        log "디스크 온도: ${DISK_TEMP}°C"
+        if [ "$DISK_TEMP" -gt "$DISK_TEMP_THRESHOLD" ]; then
+            ERRORS+=("디스크 온도 ${DISK_TEMP}°C 경고")
+        fi
+    fi
+fi
+
+# ── 9-2. 서비스 상태 확인 (launchctl) ────────────────────
+section "서비스 상태"
+# 비정상 종료된 서비스 (Exit Code가 0이 아닌 것들)
+failed_services=$(launchctl list | awk '$2 != 0 && $2 != "-" {print $3}' | grep -v "com.apple.coreservices.uiagent" || true)
+if [ -n "$failed_services" ]; then
+    while read -r service; do
+        log "비정상 종료 서비스 감지: $service"
+        ERRORS+=("실패 서비스: $service")
+    done <<< "$failed_services"
+else
+    log "모든 서비스 정상"
+    RESULTS+=("서비스: 정상")
+fi
+
 # ── 10. 네트워크 연결 상태 확인 ──────────────────────────
 section "네트워크 연결"
 if ping -c 1 8.8.8.8 &>/dev/null 2>&1; then
@@ -375,7 +424,13 @@ SW_COUNT=$(echo "$SW_LIST" | grep -c '^\*' || true)
 if [ "$SW_COUNT" -gt 0 ]; then
     log "시스템 업데이트 ${SW_COUNT}개 대기 중"
     echo "$SW_LIST" >> "$LOG_FILE"
-    ERRORS+=("macOS 업데이트 ${SW_COUNT}개 대기 (수동 설치 필요)")
+    
+    # 보안 업데이트 여부 확인
+    if echo "$SW_LIST" | grep -iq "Security"; then
+        ERRORS+=("💡 보안 업데이트 포함 ${SW_COUNT}개 대기 (즉시 설치 권장)")
+    else
+        ERRORS+=("macOS 업데이트 ${SW_COUNT}개 대기 (수동 설치 필요)")
+    fi
 else
     log "macOS 최신 상태"
     RESULTS+=("macOS: 최신")
@@ -392,11 +447,27 @@ else
     RESULTS+=("Orphaned 프로세스: 없음")
 fi
 
+# ── 12-1. 파일시스템 무결성 확인 (주간 체크 - 일요일) ───────
+section "파일시스템 무결성"
+DOW=$(date +%w)  # 0=일요일
+if [ "$DOW" -eq 0 ]; then
+    log "주간 파일시스템 무결성 점검 중..."
+    if diskutil verifyVolume / >> "$LOG_FILE" 2>&1; then
+        log "파일시스템 상태: 정상"
+        RESULTS+=("파일시스템: 정상")
+    else
+        log "파일시스템 오류 발견! 복구가 필요할 수 있습니다."
+        ERRORS+=("파일시스템 점검 오류 발견")
+    fi
+else
+    log "파일시스템 점검: 다음 일요일에 실행 예정"
+fi
+
 # ── 13. 로그 파일 정리 (30일 이상 된 것 삭제) ────────────
 section "로그 정리"
 
 # 프로젝트 로그 및 시스템 로그 정리
-find "$LOG_STAGING_DIR" -name "maintenance_*.log" -mtime +30 -delete 2>/dev/null
+find "$LOG_STAGING_DIR" -name "maintenance_macos_*.log" -mtime +30 -delete 2>/dev/null
 
 # .env에 등록된 추가 로그 디렉토리 정리
 if [ -n "${CLEANUP_LOG_DIRS:-}" ]; then

@@ -64,12 +64,18 @@ sudo smartctl -a /dev/sda
 
 ```bash
 # 저장소 클론
-git clone https://github.com/your-username/Daily-Maintenance.git
-cd Daily-Maintenance
+git clone https://github.com/20eung/os-daily-maintenance.git
+cd os-daily-maintenance
 
-# 설정 파일 생성 및 수정
+# 1. 공통 설정 파일 생성 (텔레그램 등)
 cp .env.sample .env
+
+# 2. OS별 전용 설정 파일 생성 (Mac 기준 예시)
+cp .env.darwin.sample .env.darwin
+
+# 3. 설정 수정
 nano .env
+nano .env.darwin
 ```
 
 ### 3️⃣ `.env` 설정 항목 (범용적 사용을 위한 최소 설정)
@@ -102,12 +108,12 @@ nano .env
 crontab -e
 
 # 아래 내용 추가 (macOS 예시)
-00 01 * * * /Users/YOUR_USERNAME/Project/Daily-Maintenance/daily_maintenance.sh
+00 01 * * * /Users/YOUR_USERNAME/Project/os-daily-maintenance/daily_maintenance_macos.sh
 ```
 
 ```bash
 # 아래 내용 추가 (Ubuntu 예시)
-00 01 * * * /home/YOUR_USERNAME/Project/Daily-Maintenance/daily_maintenance_ubuntu.sh
+00 01 * * * /home/YOUR_USERNAME/Project/os-daily-maintenance/daily_maintenance_ubuntu.sh
 ```
 
 ---
@@ -134,11 +140,15 @@ YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/bin/find
 ## 📁 프로젝트 구조 (Folder Structure)
 
 ```text
-Daily-Maintenance/
-├── daily_maintenance.sh        # macOS 실행 스크립트
-├── daily_maintenance_ubuntu.sh # Ubuntu/Debian 실행 스크립트
-├── .env                        # 사용자 환경 설정 (Git 제외)
-├── .env.sample                 # 설정 샘플 파일
+os-daily-maintenance/
+├── daily_maintenance_macos.sh  # macOS 실행 스크립트 (Homebrew 기반)
+├── daily_maintenance_ubuntu.sh # Ubuntu/Debian 실행 스크립트 (APT 기반)
+├── .env                        # 공통 환경 설정 (텔레그램 등)
+├── .env.darwin                 # macOS 로컬 전용 설정 (Git 제외)
+├── .env.linux                  # Linux 로컬 전용 설정 (Git 제외)
+├── .env.sample                 # 공통 설정 샘플 파일
+├── .env.darwin.sample          # macOS 전용 설정 샘플 파일
+├── .env.linux.sample           # Linux 전용 설정 샘플 파일
 ├── .gitignore                  # Git 기록 제외 설정
 ├── README.md                   # 프로젝트 매뉴얼
 └── logs/                       # 실행 이력 로그 (날짜별)

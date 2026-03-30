@@ -7,8 +7,8 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 
 ### 1. 환경 설정 및 초기화
 - `set -uo pipefail`로 오류 발생 시 중단 및 변수 엄격 체크.
-- `.env` 파일이 존재할 경우 `source`하여 환경 변수를 로드합니다.
-- `HOME`과 `PATH`는 `.env`에 정의된 `MAINTENANCE_HOME`, `MAINTENANCE_PATH`를 우선 반영하며, 하드코딩된 개인 경로는 절대 사용하지 않습니다.
+- 환경 설정 로드 순서를 준수합니다: `.env` (공통) -> `.env.darwin`/`.env.linux` (OS 전용) -> `.env.local` (로컬).
+- `HOME`과 `PATH`는 설정 파일에 정의된 `MAINTENANCE_HOME`, `MAINTENANCE_PATH`를 우선 반영하며, 하드코딩된 개인 경로는 절대 사용하지 않습니다.
 - 모든 외부 도구(brew, docker 등) 실행 전 `command -v`를 통해 설치 여부를 확인하고, 미설치 시 건너뜀 목록에 추가합니다.
 - `sudo` 권한이 필요한 작업 전 가용성을 체크하고, 권한 부족 시 `visudo` 설정 가이드를 콘솔에 출력합니다.
 - `nvm` 및 `MAINTENANCE_CONDA_SH`를 소싱하여 관련 명령어가 사용 가능한 상태로 환경을 구성.
@@ -29,7 +29,7 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 - **정리**: `docker image prune -f` 수행.
 
 ### 5. Git 저장소 동기화 (핵심 로직)
-- `$HOME/Project` 하위의 모든 `.git` 디렉토리를 탐색.
+- `$USER_PROJECT_DIRS` (또는 `$USER_PROJECT_DIR`) 하위의 모든 `.git` 디렉토리를 깊이 3까지 동적으로 탐색합니다. (node_modules 제외)
 - 각 저장소에서 `fetch` 후 `ahead`/`behind` 카운트를 계산.
 - `behind`만 존재할 경우 자동 `pull` 수행. `ahead`가 있거나 `diverged` 상태면 경고 목록에 추가하여 수동 처리를 유도.
 
@@ -50,4 +50,4 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 ## 환경 설정
 - **기본 환경**: macOS M1 Pro & Ubuntu Linux, bash, UTF-8 모드
 - **경로**: 사용자의 홈 디렉토리 기준 (`.env` 설정을 따름)
-- **로깅**: 상세 실행 과정은 날짜별 로그 파일(`logs/maintenance_*.log`)에 기록.
+- **로깅**: 상세 실행 과정은 날짜별 로그 파일(`logs/maintenance_macos_*.log` 또는 `logs/maintenance_ubuntu_*.log`)에 기록.

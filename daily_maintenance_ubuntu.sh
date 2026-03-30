@@ -6,11 +6,18 @@
 
 set -uo pipefail
 
-# 1. 환경 설정 로드
-ENV_FILE="$(dirname "$0")/.env"
-if [ -f "$ENV_FILE" ]; then
-    source "$ENV_FILE"
-fi
+# 1. 환경 설정 로드 (순서: .env -> .env.os -> .env.local)
+SCRIPT_DIR="$(dirname "$0")"
+
+# 공통 설정
+[ -f "$SCRIPT_DIR/.env" ] && source "$SCRIPT_DIR/.env"
+
+# OS 전용 설정 (linux/darwin)
+OS_TYPE=$(uname | tr '[:upper:]' '[:lower:]')
+[ -f "$SCRIPT_DIR/.env.${OS_TYPE}" ] && source "$SCRIPT_DIR/.env.${OS_TYPE}"
+
+# 머신별 로컬 설정 (있을 경우 최우선)
+[ -f "$SCRIPT_DIR/.env.local" ] && source "$SCRIPT_DIR/.env.local"
 
 # ─────────────────────────────────────────────────────────
 # 환경 설정 및 초기화
