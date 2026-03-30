@@ -79,10 +79,22 @@ section() { echo "" >> "$LOG_FILE"; log "━━━ $1 ━━━"; }
 # 텔레그램 전송
 send_msg() {
     [ -z "$MAINTENANCE_BOT_KEY" ] || [ -z "$MAINTENANCE_CHAT_ID" ] && return
+    
+    local message="$1"
+    # HTML 특수문자 탈출 처리
+    message=$(echo "$message" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+
+    # 텔레그램 메시지 길이 제한 (4096자) 대응: 4000자 초과 시 절삭
+    if [ "${#message}" -gt 4000 ]; then
+        message="${message:0:3900}${NL}${NL}...(메시지가 너무 길어 일부 생략되었습니다. 자세한 로그를 확인하세요.)"
+    fi
+
+    log "텔레그램 메시지 전송 시도 중 (길이: ${#message})..."
     curl -s -X POST "https://api.telegram.org/bot${MAINTENANCE_BOT_KEY}/sendMessage" \
         --data-urlencode "chat_id=${MAINTENANCE_CHAT_ID}" \
-        --data-urlencode "text=$1" \
-        --data-urlencode "parse_mode=Markdown" > /dev/null 2>&1
+        --data-urlencode "text=$message" \
+        --data-urlencode "parse_mode=HTML" >> "$LOG_FILE" 2>&1
+    echo "" >> "$LOG_FILE"
 }
 
 {
@@ -212,10 +224,16 @@ fi
 section "pip 설치된 패키지"
 pip_updated=0
 if command -v pip3 &>/dev/null; then
+    # PEP 668: 시스템 패키지 업데이트를 위한 break-system-packages 옵션 체크
+    BREAK_FLAG=""
+    if pip3 install --help 2>/dev/null | grep -q "break-system-packages"; then
+        BREAK_FLAG="--break-system-packages"
+    fi
+
     while IFS= read -r line; do
         pkg=$(echo "$line" | awk '{print $1}')
         if [ -n "$pkg" ]; then
-            pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
+            pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
                 log "$pkg 업그레이드 완료"
                 pip_updated=$((pip_updated+1))
             } || log "$pkg 업그레이드 실패"
