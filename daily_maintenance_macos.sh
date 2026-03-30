@@ -44,6 +44,7 @@ LOG_STAGING_DIR="${LOG_STAGING_DIR:-$HOME/Project/Daily-Maintenance/logs}"
 LOG_FILE="$LOG_STAGING_DIR/maintenance_macos_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 NL=$'\n'
+LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-30}"
 
 # 시스템 모니터링 임계값 (기본값)
 DISK_USAGE_THRESHOLD="${DISK_USAGE_THRESHOLD:-80}"

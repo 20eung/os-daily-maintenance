@@ -37,7 +37,7 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 - **Conda**: `update conda -y` 및 `clean --all` 수행.
 - **시스템**: `softwareupdate -l`(macOS) 또는 `apt list --upgradable`(Ubuntu) 정보를 확인.
 - **디스크**: 사용량이 80%를 초과할 경우 경고 알림.
-- **로그 정리**: `/Library/Logs`, `~/Library/Logs`, 프로젝트 로그 디렉토리에서 30일이 지난 로그를 삭제하고 확보 결과 보고.
+- **로그 정리**: `/Library/Logs`, `~/Library/Logs`, 프로젝트 로그 디렉토리에서 `$LOG_RETENTION_DAYS`가 지난 로그를 삭제하고 확보 결과 보고.
 - **텔레그램 알림**: `curl`을 사용하여 업데이트된 항목(✅), 최신인 상태(✔), 오류/경고 항목(⚠️)을 포맷팅하여 전송.
 
 ## 🚀 릴리즈 관리 규칙 (Release Rules)

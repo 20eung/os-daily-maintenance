@@ -95,7 +95,10 @@ nano .env.darwin
 - **Git 저장소**: `USER_PROJECT_DIR` 아래의 모든 `.git` 자동 발견
 
 **추가 설정 (옵션):**
+- `LOG_RETENTION_DAYS`: 로그 보관 기간 (일 단위, 기본값: `30`)
 - `CLEANUP_LOG_DIRS`: 30일이 지난 로그를 정리할 추가 디렉토리 (공백으로 구분)
+- `DISK_USAGE_THRESHOLD`: 디스크 경고 사용률 (기본값: `85`)
+- `CPU_TEMP_THRESHOLD`: CPU 경고 온도 (기본값: `80`)
 
 ---
 

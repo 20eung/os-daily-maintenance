@@ -38,6 +38,7 @@ USER_PROJECT_DIR="${USER_PROJECT_DIR:-/data}"
 LOG_STAGING_DIR="${LOG_STAGING_DIR:-$HOME/os-daily-maintenance/logs}"
 LOG_FILE="$LOG_STAGING_DIR/maintenance_ubuntu_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-30}"
 NL=$'\n'
 
 # 시스템 모니터링 임계값 (기본값)
@@ -331,13 +332,13 @@ fi
 # ── 14. 로그 정리 (30일 이상) ───────────────────────────
 section "로그 정리"
 # 프로젝트 로그 및 시스템 로그 정리
-find "$LOG_STAGING_DIR" -name "maintenance_ubuntu_*.log" -mtime +30 -delete 2>/dev/null
+find "$LOG_STAGING_DIR" -name "maintenance_ubuntu_*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null
 
 # .env에 등록된 추가 로그 디렉토리 정리
 if [ -n "${CLEANUP_LOG_DIRS:-}" ]; then
     for dir in $CLEANUP_LOG_DIRS; do
         if [ -d "$dir" ]; then
-            find "$dir" -type f -name "*.log" -mtime +30 -delete 2>/dev/null
+            find "$dir" -type f -name "*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null
             log "로그 디렉토리 정리: $dir"
         fi
     done
@@ -345,9 +346,9 @@ fi
 
 # 시스템 로그 (/var/log) 정리
 if [ "$SUDO_AVAILABLE" = true ]; then
-    sudo find "/var/log" -name "*.log" -mtime +30 -delete 2>/dev/null 2>&1 && log "/var/log 정리 완료" || log "/var/log 정리 실패 (sudo 에러)"
+    sudo find "/var/log" -name "*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null 2>&1 && log "/var/log 정리 완료" || log "/var/log 정리 실패 (sudo 에러)"
 else
-    find "/var/log" -name "*.log" -mtime +30 -delete 2>/dev/null 2>&1 || log "/var/log 정리 권한 부족 (sudo 설정 필요)"
+    find "/var/log" -name "*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null 2>&1 || log "/var/log 정리 권한 부족 (sudo 설정 필요)"
 fi
 log "시스템 로그 정리 완료"
 
