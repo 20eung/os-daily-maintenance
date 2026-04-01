@@ -159,6 +159,41 @@ os-daily-maintenance/
 
 ---
 
+## 📜 버전 히스토리 (Changelog)
+
+### v2.2.5 (2026-04-01)
+- **Claude & bkit 섹션 통합**: 양쪽 OS(macOS/Ubuntu)에서 동일한 섹션 구조 적용
+  - 버전 로깅 추가 (업데이트 전/후 버전 명시적 기록)
+  - 블럭 형태의 명확한 성공/실패 처리
+  - JSON `.get()` 폴백으로 안전한 파싱
+- **Git 동기화 대폭 개선**: macOS의 stash 기능을 Ubuntu로 이전
+  - 로컬 변경사항 자동 stash → pull → stash 복구
+  - diverged 상태 감지 및 알림
+  - ahead (미푸시) 커밋 감지 및 에러 보고
+  - remote 없는 저장소 로그 기록
+
+### v2.2.4 (2026-04-01)
+- NVM 지원 추가 (Node.js 버전 관리)
+- bkit 플러그인 자동 업데이트 기능 추가
+
+### v2.2.3
+- pip 업데이트 시 `--break-system-packages` 플래그 동적 처리
+
+### v2.2.2
+- LOG_RETENTION_DAYS 환경 변수 지원
+
+### v2.2.1
+- Docker 서브쉘 카운터 버그 수정
+
+### v2.2.0
+- find 경로 최적화
+
+### v2.1.0
+- 다중 OS 지원 및 OS별 환경 설정 분리
+
+---
+
+### 기존 히스토리
 - [x] Multi-OS (macOS & Ubuntu) 지원 스크립트 분리
 - [x] Docker Desktop 앱 자동 업데이트 연동 (macOS 전용)
 - [x] Git 저장소 간 충돌(Diverged) 자동 감지 로직
