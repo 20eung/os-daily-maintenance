@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -lh ~/Project/Daily-Maintenance/logs/maintenance_macos_*.log)",
+      "Bash(find ~/Project -name maintenance_macos_*.log -type f)",
+      "Bash(bash /Users/20eung/Project/os-daily-maintenance/daily_maintenance_macos.sh)",
+      "Bash(xargs ls:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(grep -r \"OpenClaw\\\\|openclaw\" /Users/20eung/Project/os-daily-maintenance/.env*)",
+      "Bash(docker volume:*)",
+      "Bash(docker rmi:*)",
+      "Bash(softwareupdate -i -a)",
+      "Bash(softwareupdate -l)",
+      "Bash(softwareupdate -i \"Safari26.4SequoiaAuto-26.4\" -i \"macOS Sequoia 15.7.5-24G624\")",
+      "Bash(sudo softwareupdate:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/20eung/Project/OpenClaw",
+      "/Users/20eung/Project/AnythingLLM"
+    ]
+  }
+}

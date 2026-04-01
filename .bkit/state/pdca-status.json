@@ -1,0 +1,153 @@
+{
+  "version": "3.0",
+  "lastUpdated": "2026-04-01T11:45:06.344Z",
+  "activeFeatures": [
+    "os-daily-maintenance"
+  ],
+  "primaryFeature": "os-daily-maintenance",
+  "features": {
+    "os-daily-maintenance": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-30T15:18:42.452Z",
+        "lastUpdated": "2026-04-01T11:45:06.344Z"
+      },
+      "lastFile": "/Users/20eung/Project/os-daily-maintenance/daily_maintenance_ubuntu.sh"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-03-30T15:16:15.482Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-04-01T11:45:06.344Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-03-30T15:18:42.452Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:19:00.667Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:19:25.060Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:20:10.716Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:24:04.077Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:24:15.813Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:24:34.814Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:28:10.893Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-30T15:34:26.064Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:14.985Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:15.208Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:15.266Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:15.324Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:30.785Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:51.626Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:44:59.508Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-01T11:45:06.344Z",
+      "feature": "os-daily-maintenance",
+      "phase": "do",
+      "action": "updated"
+    }
+  ],
+  "stateMachine": {
+    "defaultWorkflow": "default",
+    "activeWorkflows": {},
+    "totalTransitions": 0
+  },
+  "automation": {
+    "globalLevel": 2,
+    "trustScore": 40,
+    "pendingApprovals": 0,
+    "lastGateResult": null
+  },
+  "team": {
+    "enabled": true,
+    "stateFile": ".bkit/runtime/agent-state.json",
+    "eventsFile": ".bkit/runtime/agent-events.jsonl"
+  }
+}

@@ -31,6 +31,10 @@ fi
 
 export PATH="${MAINTENANCE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}:$PATH"
 
+# NVM 설정 (Node.js 버전 관리)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
 # 변수 설정 (기본값 설정 포함)
 MAINTENANCE_BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
 MAINTENANCE_CHAT_ID="${MAINTENANCE_CHAT_ID:-}"
@@ -139,6 +143,29 @@ if command -v claude &>/dev/null; then
             RESULTS+=("Claude: $CLAUDE_AFTER 최신")
         fi
     } || RESULTS+=("Claude: $CLAUDE_BEFORE (확인불가)")
+
+    # ── 2-1. bkit 플러그인 ─────────────────────────────
+    section "bkit 플러그인"
+    BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
+    if [ -f "$BKIT_PLUG_PATH" ]; then
+        BKIT_BEFORE=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
+        if command -v claude &>/dev/null; then
+            claude plugin marketplace update bkit-marketplace 2>>"$LOG_FILE"
+            claude plugin update bkit@bkit-marketplace 2>>"$LOG_FILE" && {
+                BKIT_AFTER=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
+                if [ "$BKIT_BEFORE" != "$BKIT_AFTER" ]; then
+                    log "bkit 플러그인 업데이트: $BKIT_BEFORE → $BKIT_AFTER"
+                    UPDATED+=("bkit ${BKIT_BEFORE}→${BKIT_AFTER}")
+                else
+                    log "bkit 플러그인 최신 상태 ($BKIT_AFTER)"
+                    RESULTS+=("bkit: $BKIT_AFTER 최신")
+                fi
+            } || log "bkit 플러그인 업데이트 실패"
+        fi
+    else
+        log "bkit 플러그인 미설치 — 건너뜀"
+        SKIPPED+=("bkit")
+    fi
 else
     log "Claude Code 미설치 — 건너뜀"
     SKIPPED+=("Claude")
