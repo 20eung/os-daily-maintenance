@@ -133,6 +133,8 @@ fi
 section "Claude Code"
 if command -v claude &>/dev/null; then
     CLAUDE_BEFORE=$(claude --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    log "현재 버전: $CLAUDE_BEFORE"
+
     claude update 2>>"$LOG_FILE" && {
         CLAUDE_AFTER=$(claude --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         if [ "$CLAUDE_BEFORE" != "$CLAUDE_AFTER" ]; then
@@ -142,33 +144,41 @@ if command -v claude &>/dev/null; then
             log "Claude Code 최신 상태 ($CLAUDE_AFTER)"
             RESULTS+=("Claude: $CLAUDE_AFTER 최신")
         fi
-    } || RESULTS+=("Claude: $CLAUDE_BEFORE (확인불가)")
-
-    # ── 2-1. bkit 플러그인 ─────────────────────────────
-    section "bkit 플러그인"
-    BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
-    if [ -f "$BKIT_PLUG_PATH" ]; then
-        BKIT_BEFORE=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
-        if command -v claude &>/dev/null; then
-            claude plugin marketplace update bkit-marketplace 2>>"$LOG_FILE"
-            claude plugin update bkit@bkit-marketplace 2>>"$LOG_FILE" && {
-                BKIT_AFTER=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
-                if [ "$BKIT_BEFORE" != "$BKIT_AFTER" ]; then
-                    log "bkit 플러그인 업데이트: $BKIT_BEFORE → $BKIT_AFTER"
-                    UPDATED+=("bkit ${BKIT_BEFORE}→${BKIT_AFTER}")
-                else
-                    log "bkit 플러그인 최신 상태 ($BKIT_AFTER)"
-                    RESULTS+=("bkit: $BKIT_AFTER 최신")
-                fi
-            } || log "bkit 플러그인 업데이트 실패"
-        fi
-    else
-        log "bkit 플러그인 미설치 — 건너뜀"
-        SKIPPED+=("bkit")
-    fi
+    } || {
+        log "Claude Code 업데이트 실패 (또는 최신 상태)"
+        RESULTS+=("Claude: $CLAUDE_BEFORE (확인불가)")
+    }
 else
     log "Claude Code 미설치 — 건너뜀"
     SKIPPED+=("Claude")
+fi
+
+# ── 2-1. bkit 플러그인 업데이트 ─────────────────────────────
+section "bkit 플러그인"
+BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
+if [ -f "$BKIT_PLUG_PATH" ]; then
+    BKIT_BEFORE=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
+    log "현재 버전: $BKIT_BEFORE"
+
+    if command -v claude &>/dev/null; then
+        claude plugin marketplace update bkit-marketplace 2>>"$LOG_FILE"
+        claude plugin update bkit@bkit-marketplace 2>>"$LOG_FILE" && {
+            BKIT_AFTER=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
+            if [ "$BKIT_BEFORE" != "$BKIT_AFTER" ]; then
+                log "bkit 업데이트: $BKIT_BEFORE → $BKIT_AFTER"
+                UPDATED+=("bkit ${BKIT_BEFORE}→${BKIT_AFTER}")
+            else
+                log "bkit 최신 상태 ($BKIT_AFTER)"
+                RESULTS+=("bkit: $BKIT_AFTER 최신")
+            fi
+        } || {
+            log "bkit 업데이트 실패 (또는 최신 상태)"
+            RESULTS+=("bkit: $BKIT_BEFORE (확인불가)")
+        }
+    fi
+else
+    log "bkit 플러그인 미설치 — 건너뜀"
+    SKIPPED+=("bkit")
 fi
 
 # ── 3. npm 전역 패키지 업데이트 ─────────────────────────
@@ -237,30 +247,60 @@ else
     SKIPPED+=("Docker Compose")
 fi
 
-# ── 6. GitHub 저장소 동기화 ─────────────────────────────
+# ── 6. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
 if command -v git &>/dev/null; then
     git_pulled=()
     git_pull_failed=()
+    git_ahead=()
+    git_noremote=()
     read -ra GIT_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r repo; do
         repo_name=$(basename "$repo")
         branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
         remote=$(git -C "$repo" remote 2>/dev/null | head -1)
-        if [ -n "$remote" ]; then
-            git -C "$repo" fetch "$remote" -q 2>/dev/null
-            behind=$(git -C "$repo" rev-list "HEAD..${remote}/${branch}" --count 2>/dev/null || echo 0)
-            ahead=$(git -C "$repo" rev-list "${remote}/${branch}..HEAD" --count 2>/dev/null || echo 0)
-            if [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ]; then
+        if [ -z "$remote" ]; then
+            git_noremote+=("$repo_name")
+            continue
+        fi
+        git -C "$repo" fetch "$remote" -q 2>/dev/null
+        behind=$(git -C "$repo" rev-list "HEAD..${remote}/${branch}" --count 2>/dev/null || echo 0)
+        ahead=$(git -C "$repo" rev-list "${remote}/${branch}..HEAD" --count 2>/dev/null || echo 0)
+        if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
+            # diverged: pull 불가, 알림만
+            git_pull_failed+=("$repo_name (↓${behind} ↑${ahead} — diverged, 수동 처리 필요)")
+        elif [ "$behind" -gt 0 ]; then
+            # 자동 pull (로컬 변경사항이 있으면 stash 후 pull)
+            if git -C "$repo" stash push -u -m "auto-maintenance-$(date +%s)" >/dev/null 2>&1; then
                 if git -C "$repo" pull "$remote" "$branch" -q 2>>"$LOG_FILE"; then
+                    log "pull 완료: $repo_name (${behind}커밋, 로컬 변경사항 stash됨)"
+                    git_pulled+=("$repo_name (↓${behind}, 변경사항 stash)")
+                else
+                    log "pull 실패: $repo_name"
+                    git -C "$repo" stash pop >/dev/null 2>&1
+                    git_pull_failed+=("$repo_name (pull 실패, stash 복구됨)")
+                fi
+            else
+                if git -C "$repo" pull "$remote" "$branch" -q 2>>"$LOG_FILE"; then
+                    log "pull 완료: $repo_name (${behind}커밋)"
                     git_pulled+=("$repo_name (↓${behind})")
                 else
-                    git_pull_failed+=("$repo_name")
+                    log "pull 실패: $repo_name"
+                    git_pull_failed+=("$repo_name (pull 실패 - 로컬 변경사항 있음, 수동 처리 필요)")
                 fi
             fi
+        elif [ "$ahead" -gt 0 ]; then
+            git_ahead+=("$repo_name (↑${ahead} 커밋 미푸시)")
+        else
+            log "최신: $repo_name"
         fi
     done < <(find "${GIT_SEARCH_DIRS[@]}" -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
-    [ ${#git_pulled[@]} -gt 0 ] && UPDATED+=("Git pull: ${#git_pulled[@]}개")
+
+    [ ${#git_pulled[@]} -gt 0 ]      && UPDATED+=("Git pull: ${#git_pulled[@]}개 (${git_pulled[*]})")
+    [ ${#git_pull_failed[@]} -gt 0 ] && { for r in "${git_pull_failed[@]}"; do ERRORS+=("Git: $r"); done; }
+    [ ${#git_ahead[@]} -gt 0 ]       && { for r in "${git_ahead[@]}"; do ERRORS+=("Git push 필요: $r"); done; }
+    [ ${#git_noremote[@]} -gt 0 ]    && log "remote 없음: ${git_noremote[*]}"
+    [ ${#git_pulled[@]} -eq 0 ] && [ ${#git_pull_failed[@]} -eq 0 ] && [ ${#git_ahead[@]} -eq 0 ] && RESULTS+=("GitHub: 모두 최신")
 else
     log "git 미설치 — 건너뜀"
     SKIPPED+=("Git")

@@ -179,26 +179,29 @@ fi
 
 # ── 3. bkit 플러그인 업데이트 ─────────────────────────────
 section "bkit 플러그인"
-if command -v claude &>/dev/null; then
-    BKIT_BEFORE=$(cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['plugins']['bkit@bkit-marketplace'][0]['version'])" 2>/dev/null || echo "unknown")
+BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
+if [ -f "$BKIT_PLUG_PATH" ]; then
+    BKIT_BEFORE=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
     log "현재 버전: $BKIT_BEFORE"
 
-    claude plugin marketplace update bkit-marketplace 2>>"$LOG_FILE"
-    claude plugin update bkit@bkit-marketplace 2>>"$LOG_FILE" && {
-        BKIT_AFTER=$(cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['plugins']['bkit@bkit-marketplace'][0]['version'])" 2>/dev/null || echo "unknown")
-        if [ "$BKIT_BEFORE" != "$BKIT_AFTER" ]; then
-            log "bkit 업데이트: $BKIT_BEFORE → $BKIT_AFTER"
-            UPDATED+=("bkit ${BKIT_BEFORE}→${BKIT_AFTER}")
-        else
-            log "bkit 최신 상태 ($BKIT_AFTER)"
-            RESULTS+=("bkit: $BKIT_AFTER 최신")
-        fi
-    } || {
-        log "bkit 업데이트 실패 (또는 최신 상태)"
-        RESULTS+=("bkit: $BKIT_BEFORE (확인불가)")
-    }
+    if command -v claude &>/dev/null; then
+        claude plugin marketplace update bkit-marketplace 2>>"$LOG_FILE"
+        claude plugin update bkit@bkit-marketplace 2>>"$LOG_FILE" && {
+            BKIT_AFTER=$(python3 -c "import sys,json; d=json.load(open('$BKIT_PLUG_PATH')); print(d['plugins'].get('bkit@bkit-marketplace', [{'version':'unknown'}])[0]['version'])" 2>/dev/null || echo "unknown")
+            if [ "$BKIT_BEFORE" != "$BKIT_AFTER" ]; then
+                log "bkit 업데이트: $BKIT_BEFORE → $BKIT_AFTER"
+                UPDATED+=("bkit ${BKIT_BEFORE}→${BKIT_AFTER}")
+            else
+                log "bkit 최신 상태 ($BKIT_AFTER)"
+                RESULTS+=("bkit: $BKIT_AFTER 최신")
+            fi
+        } || {
+            log "bkit 업데이트 실패 (또는 최신 상태)"
+            RESULTS+=("bkit: $BKIT_BEFORE (확인불가)")
+        }
+    fi
 else
-    log "Claude Code 미설치 — bkit 건너뜀"
+    log "bkit 플러그인 미설치 — 건너뜀"
     SKIPPED+=("bkit")
 fi
 
