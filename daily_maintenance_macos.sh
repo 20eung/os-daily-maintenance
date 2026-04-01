@@ -230,16 +230,37 @@ if command -v pip3 &>/dev/null; then
         BREAK_FLAG="--break-system-packages"
     fi
 
-    while IFS= read -r line; do
-        pkg=$(echo "$line" | awk '{print $1}')
-        if [ -n "$pkg" ]; then
-            pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
-                log "$pkg 업그레이드 완료"
-                pip_updated=$((pip_updated+1))
-            } || log "$pkg 업그레이드 실패"
+    # pip list 명령이 성공하는지 먼저 확인 (sudo 필요시 재시도)
+    PIP_LIST_CMD="pip3 list --outdated $BREAK_FLAG"
+    if $PIP_LIST_CMD >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            pkg=$(echo "$line" | awk '{print $1}')
+            if [ -n "$pkg" ]; then
+                pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
+                    log "$pkg 업그레이드 완료"
+                    pip_updated=$((pip_updated+1))
+                } || log "$pkg 업그레이드 실패"
+            fi
+        done < <($PIP_LIST_CMD 2>/dev/null | tail -n +3)
+        [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
+    else
+        # 첫 시도 실패 시 sudo로 재시도 (BREAK_FLAG 없이)
+        if sudo pip3 list --outdated >/dev/null 2>&1; then
+            while IFS= read -r line; do
+                pkg=$(echo "$line" | awk '{print $1}')
+                if [ -n "$pkg" ]; then
+                    sudo pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
+                        log "$pkg 업그레이드 완료 (sudo)"
+                        pip_updated=$((pip_updated+1))
+                    } || log "$pkg 업그레이드 실패 (sudo)"
+                fi
+            done < <(sudo pip3 list --outdated 2>/dev/null | tail -n +3)
+            [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개 (sudo)") || RESULTS+=("pip: 최신")
+        else
+            log "pip list 명령 실패 (pip 손상 또는 권한 문제) — 건너뜀"
+            ERRORS+=("pip: 패키지 목록 조회 실패")
         fi
-    done < <(pip3 list --outdated 2>/dev/null | tail -n +3)
-    [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
+    fi
 else
     log "pip3 미설치 — 건너뜀"
     SKIPPED+=("pip3")
@@ -247,16 +268,28 @@ fi
 
 # ── 6. Docker 업데이트 ─────────────────────────────────────
 # 6-1. Docker Desktop 앱 업데이트 (4.38+ 지원)
-if command -v docker &>/dev/null && docker desktop update --help &>/dev/null 2>&1; then
+if command -v docker &>/dev/null; then
     DOCKER_APP_VER=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null || echo "unknown")
     log "현재 Docker Desktop 앱 버전: $DOCKER_APP_VER"
-    docker desktop update -q 2>>"$LOG_FILE" && log "Docker Desktop 앱 업데이트 체크 완료"
+    # Docker Desktop이 실행 중이면 업데이트 체크 수행 (출력은 로그에만)
+    if docker ps >/dev/null 2>&1; then
+        docker desktop update -q >>"$LOG_FILE" 2>&1 || log "Docker Desktop 앱 업데이트 체크 건너뜀"
+    else
+        log "Docker Desktop 미실행 — 앱 업데이트 체크 건너뜀"
+    fi
 fi
 
 # 6-2. Docker Compose 프로젝트 자동 감지 및 업데이트
 section "Docker Compose 프로젝트"
 docker_updated=0
-if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+# Docker 데몬 통신 성공 여부를 구체적으로 체크
+DOCKER_INFO_STATUS=0
+if command -v docker &>/dev/null; then
+    docker info >>"$LOG_FILE" 2>&1
+    DOCKER_INFO_STATUS=$?
+fi
+
+if [ "$DOCKER_INFO_STATUS" -eq 0 ]; then
     DOCKER_COMPOSE_CMD=""
     if command -v docker-compose &>/dev/null; then
         DOCKER_COMPOSE_CMD="docker-compose"
@@ -266,19 +299,32 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
 
     if [ -n "$DOCKER_COMPOSE_CMD" ]; then
         # 모든 프로젝트 디렉토리 순회하며 docker-compose.yml 탐색
+        read -ra DOCKER_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
         while IFS= read -r compose_file; do
             [ -z "$compose_file" ] && continue
             project_dir=$(dirname "$compose_file")
             project_name=$(basename "$project_dir")
             log "Docker 점검: $project_name"
-            (
-                cd "$project_dir" || exit
-                $DOCKER_COMPOSE_CMD pull 2>>"$LOG_FILE" && {
-                    $DOCKER_COMPOSE_CMD up -d 2>>"$LOG_FILE" && log "$project_name 업데이트 완료" || log "$project_name 재시작 실패"
-                    docker_updated=$((docker_updated+1))
-                } || log "$project_name pull 실패"
-            ) || log "$project_name 진입 실패"
-        done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
+            pushd "$project_dir" >/dev/null 2>&1 || { log "$project_name 진입 실패"; continue; }
+            UP_OUTPUT=$($DOCKER_COMPOSE_CMD up -d 2>&1)
+            UP_RESULT=$?
+            popd >/dev/null 2>&1
+
+            if [ $UP_RESULT -eq 0 ]; then
+                log "$project_name 업데이트 완료"
+                docker_updated=$((docker_updated+1))
+            else
+                # 포트 충돌 에러는 특별히 처리
+                if echo "$UP_OUTPUT" | grep -q "port is already allocated"; then
+                    log "$project_name: 포트 충돌 (이미 사용 중) — 수동 처리 필요"
+                    ERRORS+=("Docker $project_name: 포트 충돌")
+                else
+                    log "$project_name 재시작 실패"
+                    ERRORS+=("Docker $project_name: 시작 실패")
+                fi
+                echo "$UP_OUTPUT" >> "$LOG_FILE"
+            fi
+        done < <(find "${DOCKER_SEARCH_DIRS[@]}" -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
         
         docker image prune -f 2>>"$LOG_FILE"
         [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
@@ -298,6 +344,7 @@ if command -v git &>/dev/null; then
     git_pull_failed=()
     git_ahead=()
     git_noremote=()
+    read -ra GIT_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r repo; do
         repo_name=$(basename "$repo")
         branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -313,20 +360,31 @@ if command -v git &>/dev/null; then
             # diverged: pull 불가, 알림만
             git_pull_failed+=("$repo_name (↓${behind} ↑${ahead} — diverged, 수동 처리 필요)")
         elif [ "$behind" -gt 0 ]; then
-            # 자동 pull
-            if git -C "$repo" pull "$remote" "$branch" -q 2>>"$LOG_FILE"; then
-                log "pull 완료: $repo_name (${behind}커밋)"
-                git_pulled+=("$repo_name (↓${behind})")
+            # 자동 pull (로컬 변경사항이 있으면 stash 후 pull)
+            if git -C "$repo" stash push -u -m "auto-maintenance-$(date +%s)" >/dev/null 2>&1; then
+                if git -C "$repo" pull "$remote" "$branch" -q 2>>"$LOG_FILE"; then
+                    log "pull 완료: $repo_name (${behind}커밋, 로컬 변경사항 stash됨)"
+                    git_pulled+=("$repo_name (↓${behind}, 변경사항 stash)")
+                else
+                    log "pull 실패: $repo_name"
+                    git -C "$repo" stash pop >/dev/null 2>&1
+                    git_pull_failed+=("$repo_name (pull 실패, stash 복구됨)")
+                fi
             else
-                log "pull 실패: $repo_name"
-                git_pull_failed+=("$repo_name (pull 실패)")
+                if git -C "$repo" pull "$remote" "$branch" -q 2>>"$LOG_FILE"; then
+                    log "pull 완료: $repo_name (${behind}커밋)"
+                    git_pulled+=("$repo_name (↓${behind})")
+                else
+                    log "pull 실패: $repo_name"
+                    git_pull_failed+=("$repo_name (pull 실패 - 로컬 변경사항 있음, 수동 처리 필요)")
+                fi
             fi
         elif [ "$ahead" -gt 0 ]; then
             git_ahead+=("$repo_name (↑${ahead} 커밋 미푸시)")
         else
             log "최신: $repo_name"
         fi
-    done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
+    done < <(find "${GIT_SEARCH_DIRS[@]}" -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
 
     [ ${#git_pulled[@]} -gt 0 ]      && UPDATED+=("Git pull: ${#git_pulled[@]}개 (${git_pulled[*]})")
     [ ${#git_pull_failed[@]} -gt 0 ] && { for r in "${git_pull_failed[@]}"; do ERRORS+=("Git: $r"); done; }
@@ -414,15 +472,17 @@ fi
 
 # ── 9-2. 서비스 상태 확인 (launchctl) ────────────────────
 section "서비스 상태"
-# 비정상 종료된 서비스 (Exit Code가 0이 아닌 것들)
-failed_services=$(launchctl list | awk '$2 != 0 && $2 != "-" {print $3}' | grep -v "com.apple.coreservices.uiagent" || true)
+# 진짜 비정상 종료된 서비스 (Exit Code가 양수인 것들: 오류 코드)
+# -9는 정상 (Launch-On-Demand 서비스가 아직 시작 안 됨)
+# 양수 코드 (예: 1, 2, ...)는 실제 오류
+failed_services=$(launchctl list | awk '$2 ~ /^[0-9]+$/ && $2 > 0 {print $3}' | grep -v "^com\.apple\." || true)
 if [ -n "$failed_services" ]; then
     while read -r service; do
         log "비정상 종료 서비스 감지: $service"
         ERRORS+=("실패 서비스: $service")
     done <<< "$failed_services"
 else
-    log "모든 서비스 정상"
+    log "모든 서비스 정상 (비정상 종료 서비스 없음)"
     RESULTS+=("서비스: 정상")
 fi
 
@@ -486,7 +546,7 @@ fi
 section "로그 정리"
 
 # 프로젝트 로그 및 시스템 로그 정리
-find "$LOG_STAGING_DIR" -name "maintenance_macos_*.log" -mtime +30 -delete 2>/dev/null
+find "$LOG_STAGING_DIR" -name "maintenance_macos_*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null
 
 # .env에 등록된 추가 로그 디렉토리 정리
 if [ -n "${CLEANUP_LOG_DIRS:-}" ]; then
@@ -508,9 +568,9 @@ log "~/Library/Logs 정리: ${before_size}MB → ${after_size}MB (${freed}MB 확
 
 # macOS 시스템 앱 로그 (/Library/Logs)
 if [ "$SUDO_AVAILABLE" = true ]; then
-    sudo find "/Library/Logs" -type f \( -name "*.log" -o -name "*.gz" \) -mtime +30 -delete 2>/dev/null 2>&1 && log "/Library/Logs 정리 완료" || log "/Library/Logs 정리 실패 (sudo 에러)"
+    sudo find "/Library/Logs" -type f \( -name "*.log" -o -name "*.gz" \) -mtime +$LOG_RETENTION_DAYS -delete >/dev/null 2>&1 && log "/Library/Logs 정리 완료" || log "/Library/Logs 정리 실패 (sudo 에러)"
 else
-    find "/Library/Logs" -type f \( -name "*.log" -o -name "*.gz" \) -mtime +30 -delete 2>/dev/null 2>&1 || log "/Library/Logs 정리 권한 부족 (sudo 설정 필요)"
+    find "/Library/Logs" -type f \( -name "*.log" -o -name "*.gz" \) -mtime +$LOG_RETENTION_DAYS -delete >/dev/null 2>&1 || log "/Library/Logs 정리 권한 부족 (sudo 설정 필요)"
 fi
 
 log "전체 로그 정리 완료"
@@ -525,15 +585,25 @@ MSG="🔧 $HOSTNAME 일일 점검 완료
 📅 $(date '+%Y-%m-%d %H:%M')
 ━━━━━━━━━━━━━━━"
 
-[ ${#UPDATED[@]} -gt 0 ] && { MSG+="${NL}✅ 업데이트됨:"; for i in "${UPDATED[@]}"; do MSG+="${NL}  ▪ $i"; done; }
-[ ${#RESULTS[@]} -gt 0 ] && { MSG+="${NL}✔ 최신 상태:"; for i in "${RESULTS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
-[ ${#ERRORS[@]} -gt 0 ]  && { MSG+="${NL}⚠️ 오류/경고:"; for i in "${ERRORS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+# ERRORS 배열 크기 제한 (Telegram 메시지 길이 대응)
+if [ ${#ERRORS[@]} -gt 10 ]; then
+    { MSG+="${NL}⚠️ 오류/경고 (상위 10개):"; for i in "${ERRORS[@]:0:10}"; do MSG+="${NL}  ▪ $i"; done; MSG+="${NL}  ... 외 $((${#ERRORS[@]} - 10))개"; }
+elif [ ${#ERRORS[@]} -gt 0 ]; then
+    { MSG+="${NL}⚠️ 오류/경고:"; for i in "${ERRORS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+fi
 
+[ ${#UPDATED[@]} -gt 0 ] && { MSG+="${NL}✅ 업데이트됨:"; for i in "${UPDATED[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+
+# RESULTS 배열 크기 제한 (Telegram 메시지 길이 대응)
+if [ ${#RESULTS[@]} -gt 10 ]; then
+    { MSG+="${NL}✔ 최신 상태 (상위 10개):"; for i in "${RESULTS[@]:0:10}"; do MSG+="${NL}  ▪ $i"; done; }
+elif [ ${#RESULTS[@]} -gt 0 ]; then
+    { MSG+="${NL}✔ 최신 상태:"; for i in "${RESULTS[@]}"; do MSG+="${NL}  ▪ $i"; done; }
+fi
+
+# SKIPPED는 공간 절약을 위해 카운트만 표시
 if [ ${#SKIPPED[@]} -gt 0 ]; then
-    MSG+="${NL}⏭️ 건너뜀 (미설치):"
-    for item in "${SKIPPED[@]}"; do
-        MSG+="${NL}  ▪ $item"
-    done
+    MSG+="${NL}⏭️ 건너뜀 (미설치): ${#SKIPPED[@]}개"
 fi
 
 MSG+="${NL}━━━━━━━━━━━━━━━${NL}💾 디스크: ${DISK_USAGE}% 사용중"

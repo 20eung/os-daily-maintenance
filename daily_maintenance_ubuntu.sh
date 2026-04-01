@@ -34,7 +34,7 @@ export PATH="${MAINTENANCE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin
 # 변수 설정 (기본값 설정 포함)
 MAINTENANCE_BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
 MAINTENANCE_CHAT_ID="${MAINTENANCE_CHAT_ID:-}"
-USER_PROJECT_DIR="${USER_PROJECT_DIR:-/data}"
+USER_PROJECT_DIRS="${USER_PROJECT_DIRS:-${USER_PROJECT_DIR:-/data}}"
 LOG_STAGING_DIR="${LOG_STAGING_DIR:-$HOME/os-daily-maintenance/logs}"
 LOG_FILE="$LOG_STAGING_DIR/maintenance_ubuntu_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -191,18 +191,18 @@ fi
 section "Docker Compose 프로젝트"
 docker_updated=0
 if command -v docker-compose &>/dev/null && command -v docker &>/dev/null; then
+    read -ra DOCKER_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r compose_file; do
         project_dir=$(dirname "$compose_file")
         project_name=$(basename "$project_dir")
         log "점검: $project_name"
-        (
-            cd "$project_dir" || exit
-            docker-compose pull 2>>"$LOG_FILE" && {
-                docker-compose up -d 2>>"$LOG_FILE" && log "$project_name 업데이트 완료" || log "$project_name 재시작 실패"
-                docker_updated=$((docker_updated+1))
-            } || log "$project_name pull 실패"
-        ) || log "$project_name 진입 실패"
-    done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
+        pushd "$project_dir" >/dev/null 2>&1 || { log "$project_name 진입 실패"; continue; }
+        docker-compose pull 2>>"$LOG_FILE" && {
+            docker-compose up -d 2>>"$LOG_FILE" && log "$project_name 업데이트 완료" || log "$project_name 재시작 실패"
+            docker_updated=$((docker_updated+1))
+        } || log "$project_name pull 실패"
+        popd >/dev/null 2>&1
+    done < <(find "${DOCKER_SEARCH_DIRS[@]}" -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
     docker image prune -f 2>>"$LOG_FILE"
     [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
 else
@@ -215,6 +215,7 @@ section "GitHub 저장소"
 if command -v git &>/dev/null; then
     git_pulled=()
     git_pull_failed=()
+    read -ra GIT_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r repo; do
         repo_name=$(basename "$repo")
         branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -231,7 +232,7 @@ if command -v git &>/dev/null; then
                 fi
             fi
         fi
-    done < <(find $USER_PROJECT_DIRS -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
+    done < <(find "${GIT_SEARCH_DIRS[@]}" -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
     [ ${#git_pulled[@]} -gt 0 ] && UPDATED+=("Git pull: ${#git_pulled[@]}개")
 else
     log "git 미설치 — 건너뜀"
