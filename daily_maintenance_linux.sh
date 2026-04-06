@@ -31,9 +31,12 @@ fi
 
 export PATH="${MAINTENANCE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}:$PATH"
 
-# NVM 설정 (Node.js 버전 관리)
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+# NVM 설정 (Node.js 버전 관리) - NVM이 설치되어 있고 nvm.sh이 존재할 때만 로드
+# cron 환경에서도 안전하게 동작하도록 조건부 처리
+if [ -d "$HOME/.nvm" ] && [ -s "$HOME/.nvm/nvm.sh" ]; then
+    export NVM_DIR="$HOME/.nvm"
+    source "$NVM_DIR/nvm.sh" 2>/dev/null || true
+fi
 
 # 변수 설정 (기본값 설정 포함)
 MAINTENANCE_BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
@@ -217,7 +220,7 @@ if command -v pip3 &>/dev/null; then
                 pip_updated=$((pip_updated+1))
             } || log "$pkg 업그레이드 실패"
         fi
-    done < <(pip3 list --outdated 2>/dev/null | tail -n +3)
+    done < <(pip3 list --outdated 2>/dev/null | tail -n +3 | grep -v "^pydantic-core")
     [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
 else
     log "pip3 미설치 — 건너뜀"
