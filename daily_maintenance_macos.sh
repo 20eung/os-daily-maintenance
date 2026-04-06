@@ -489,17 +489,7 @@ else
     RESULTS+=("서비스: 정상")
 fi
 
-# ── 10. 네트워크 연결 상태 확인 ──────────────────────────
-section "네트워크 연결"
-if ping -c 1 8.8.8.8 &>/dev/null 2>&1; then
-    log "네트워크 연결: 정상"
-    RESULTS+=("네트워크: 정상")
-else
-    log "네트워크 연결 실패"
-    ERRORS+=("네트워크 연결 실패")
-fi
-
-# ── 11. macOS 시스템 업데이트 확인 (보고만) ───────────────
+# ── 10. macOS 시스템 업데이트 확인 (보고만) ───────────────
 section "macOS 시스템 업데이트"
 SW_LIST=$(softwareupdate -l 2>&1)
 SW_COUNT=$(echo "$SW_LIST" | grep -c '^\*' || true)
