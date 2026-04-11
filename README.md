@@ -161,6 +161,12 @@ os-daily-maintenance/
 
 ## 📜 버전 히스토리 (Changelog)
 
+### v2.2.6 (2026-04-11)
+- **cokacdir 업데이트 추가**: macOS/Linux 스크립트에 cokacdir 자동 업데이트 섹션 추가
+- **macOS 업데이트 상세 목록**: softwareupdate 목록 상세 내역 텔레그램 알림에 표시
+- **Linux OS 업데이트 상세 목록**: apt list 목록 상세 내역 알림에 표시
+- **conda 오류 해결**: miniconda 재설치 및 `--no-update-deps` 옵션 적용
+
 ### v2.2.5 (2026-04-01)
 - **Claude & bkit 섹션 통합**: 양쪽 OS(macOS/Ubuntu)에서 동일한 섹션 구조 적용
   - 버전 로깅 추가 (업데이트 전/후 버전 명시적 기록)

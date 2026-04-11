@@ -153,6 +153,21 @@ else
     SKIPPED+=("Cask")
 fi
 
+# ── 1-3. cokacdir 업데이트 ────────────────────────────────
+section "cokacdir"
+if command -v cokacctl &>/dev/null; then
+    cokacctl update 2>>"$LOG_FILE" && {
+        log "cokacdir 업데이트 완료"
+        UPDATED+=("cokacdir")
+    } || {
+        log "cokacdir 최신 상태"
+        RESULTS+=("cokacdir: 최신")
+    }
+else
+    log "cokacctl 미설치 — 건너뜀"
+    SKIPPED+=("cokacdir")
+fi
+
 # ── 2. Claude Code 업데이트 ───────────────────────────────
 section "Claude Code"
 if command -v claude &>/dev/null; then
@@ -410,7 +425,7 @@ fi
 if command -v conda &>/dev/null; then
     CONDA_BEFORE=$(conda --version 2>&1 | awk '{print $2}')
     log "현재 conda 버전: $CONDA_BEFORE"
-    conda update conda -y -q 2>>"$LOG_FILE" && {
+    conda update conda --no-update-deps -y -q 2>>"$LOG_FILE" && {
         CONDA_AFTER=$(conda --version 2>&1 | awk '{print $2}')
         if [ "$CONDA_BEFORE" != "$CONDA_AFTER" ]; then
             log "conda 업데이트: ${CONDA_BEFORE}→${CONDA_AFTER}"
@@ -496,12 +511,18 @@ SW_COUNT=$(echo "$SW_LIST" | grep -c '^\*' || true)
 if [ "$SW_COUNT" -gt 0 ]; then
     log "시스템 업데이트 ${SW_COUNT}개 대기 중"
     echo "$SW_LIST" >> "$LOG_FILE"
-    
+
+    # 업데이트 이름 추출 (템레그램 목록 형식: 줄바꿈 + 리스트)
+    SW_NAMES=$(echo "$SW_LIST" | grep '^\*' | sed 's/^\* Label: //' | head -5 | paste -sd'\n' -)
+    [ "$SW_COUNT" -gt 5 ] && SW_NAMES="${SW_NAMES}
+..."
+
     # 보안 업데이트 여부 확인
     if echo "$SW_LIST" | grep -iq "Security"; then
         ERRORS+=("💡 보안 업데이트 포함 ${SW_COUNT}개 대기 (즉시 설치 권장)")
     else
-        ERRORS+=("macOS 업데이트 ${SW_COUNT}개 대기 (수동 설치 필요)")
+        ERRORS+=("macOS 업데이트 ${SW_COUNT}개 대기:
+${SW_NAMES}")
     fi
 else
     log "macOS 최신 상태"

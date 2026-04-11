@@ -132,7 +132,22 @@ else
     SKIPPED+=("APT/OS패키지")
 fi
 
-# ── 2. Claude Code 업데이트 ──────────────────────────────
+# ── 2. cokacdir 업데이트 ─────────────────────────────────
+section "cokacdir"
+if command -v cokacctl &>/dev/null; then
+    cokacctl update 2>>"$LOG_FILE" && {
+        log "cokacdir 업데이트 완료"
+        UPDATED+=("cokacdir")
+    } || {
+        log "cokacdir 최신 상태"
+        RESULTS+=("cokacdir: 최신")
+    }
+else
+    log "cokacctl 미설치 — 건너뜀"
+    SKIPPED+=("cokacdir")
+fi
+
+# ── 3. Claude Code 업데이트 ──────────────────────────────
 section "Claude Code"
 if command -v claude &>/dev/null; then
     CLAUDE_BEFORE=$(claude --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -382,6 +397,17 @@ if command -v apt &>/dev/null; then
     else
         log "보안 업데이트: 최신"
         RESULTS+=("보안: 최신")
+    fi
+
+    # 전체 업데이트 목록 (상세 정보)
+    all_updates=$(apt list --upgradable 2>/dev/null | grep -v '^Listing...' | grep -v '^-' | cut -d'/' -f1 | head -10)
+    all_count=$(apt list --upgradable 2>/dev/null | grep -v '^Listing...' | grep -v '^-' | wc -l | tr -d ' ')
+    if [ "$all_count" -gt 0 ]; then
+        all_names=$(echo "$all_updates" | tr '\n' '\n' | paste -sd'\n' -)
+        [ "$all_count" -gt 10 ] && all_names="${all_names}
+..."
+        ERRORS+=("OS 업데이트 ${all_count}개 대기:
+${all_names}")
     fi
 fi
 
