@@ -447,8 +447,10 @@ fi
 # ── 9. 시스템 상태 확인 ───────────────────────────────────
 section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
-log "루트 파티션 사용률: ${DISK_USAGE}%"
-[ "$DISK_USAGE" -gt "$DISK_USAGE_THRESHOLD" ] && ERRORS+=("디스크 ${DISK_USAGE}% 경고")
+DISK_AVAIL_K=$(df / | tail -1 | awk '{print $4}')
+DISK_AVAIL_HUMAN=$(numfmt --to=iec --suffix=B "$((DISK_AVAIL_K * 1024))" 2>/dev/null || echo "${DISK_AVAIL_K}K")
+log "루트 파티션 사용률: ${DISK_USAGE}% (잔여: ${DISK_AVAIL_HUMAN})"
+[ "$DISK_USAGE" -gt "$DISK_USAGE_THRESHOLD" ] && ERRORS+=("디스크 ${DISK_USAGE}% (잔여 ${DISK_AVAIL_HUMAN})")
 
 # 메모리 사용률 (macOS: vm_stat 기반)
 MEM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
