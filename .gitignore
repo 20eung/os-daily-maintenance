@@ -17,3 +17,5 @@
 # 기타 임시 파일
 .DS_Store
 /tmp/
+.bkit/
+.claude/
