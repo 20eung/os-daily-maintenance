@@ -324,6 +324,35 @@ else
     SKIPPED+=("Git")
 fi
 
+# ── 6-1. Obsidian-Wiki 자동 동기화 ───────────────────────
+section "Obsidian-Wiki 동기화"
+WIKI_DIR="${OBSIDIAN_WIKI_DIR:-$HOME/Project/Obsidian-Wiki}"
+if [ -d "$WIKI_DIR/.git" ]; then
+    cd "$WIKI_DIR" || true
+    # 변경사항 있으면 자동 커밋
+    if ! git -C "$WIKI_DIR" diff --quiet 2>/dev/null || \
+       ! git -C "$WIKI_DIR" diff --cached --quiet 2>/dev/null || \
+       [ -n "$(git -C "$WIKI_DIR" ls-files --others --exclude-standard 2>/dev/null)" ]; then
+        git -C "$WIKI_DIR" add -A 2>>"$LOG_FILE"
+        git -C "$WIKI_DIR" commit -m "sync: $(date +%Y-%m-%d)" 2>>"$LOG_FILE" && {
+            log "Obsidian-Wiki 변경사항 커밋 완료"
+        } || log "Obsidian-Wiki 커밋 실패 (변경 없음 또는 오류)"
+    else
+        log "Obsidian-Wiki 변경사항 없음"
+    fi
+    # 항상 push 시도
+    git -C "$WIKI_DIR" push 2>>"$LOG_FILE" && {
+        log "Obsidian-Wiki push 완료"
+        UPDATED+=("Obsidian-Wiki 동기화")
+    } || {
+        log "Obsidian-Wiki push 실패 (이미 최신 또는 네트워크 오류)"
+        RESULTS+=("Obsidian-Wiki: push 불필요")
+    }
+else
+    log "Obsidian-Wiki 디렉토리 없음 — 건너뜀 ($WIKI_DIR)"
+    SKIPPED+=("Obsidian-Wiki")
+fi
+
 # ── 7. 시스템 상태 확인 (메모리, 디스크, CPU 온도) ─────────────────────────────────
 section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
