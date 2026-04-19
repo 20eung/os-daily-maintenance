@@ -576,12 +576,17 @@ section "파일시스템 무결성"
 DOW=$(date +%w)  # 0=일요일
 if [ "$DOW" -eq 0 ]; then
     log "주간 파일시스템 무결성 점검 중..."
-    if diskutil verifyVolume / >> "$LOG_FILE" 2>&1; then
+    DISK_VERIFY_OUT=$(diskutil verifyVolume / 2>&1)
+    DISK_VERIFY_EXIT=$?
+    echo "$DISK_VERIFY_OUT" >> "$LOG_FILE"
+    if [ "$DISK_VERIFY_EXIT" -eq 0 ]; then
         log "파일시스템 상태: 정상"
         RESULTS+=("파일시스템: 정상")
     else
         log "파일시스템 오류 발견! 복구가 필요할 수 있습니다."
-        ERRORS+=("파일시스템 점검 오류 발견")
+        DISK_ERR_SUMMARY=$(echo "$DISK_VERIFY_OUT" | grep -iE "error|fail|exit code|problem" | head -3 | tr '\n' ' ')
+        [ -z "$DISK_ERR_SUMMARY" ] && DISK_ERR_SUMMARY=$(echo "$DISK_VERIFY_OUT" | tail -3 | tr '\n' ' ')
+        ERRORS+=("파일시스템 점검 오류: ${DISK_ERR_SUMMARY}→ 재시동 필요")
     fi
 else
     log "파일시스템 점검: 다음 일요일에 실행 예정"
