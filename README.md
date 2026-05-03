@@ -161,7 +161,7 @@ os-daily-maintenance/
 
 ## 📜 버전 히스토리 (Changelog)
 
-### v2.2.7 (2026-05-03)
+### v2.4.3 (2026-05-03)
 - **Docker Compose 섹션 제거**: `docker compose up -d` 자동 실행이 삭제된 컨테이너를 재생성하는 문제 해결
 - **Watchtower 위임**: 컨테이너 이미지 업데이트는 Watchtower가 전담 (macOS/Linux 공통 적용)
 
