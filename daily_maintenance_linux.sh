@@ -171,7 +171,7 @@ else
     SKIPPED+=("Claude")
 fi
 
-# ── 2-1. bkit 플러그인 업데이트 ─────────────────────────────
+# ── 4. bkit 플러그인 업데이트 ─────────────────────────────
 section "bkit 플러그인"
 BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
 if [ -f "$BKIT_PLUG_PATH" ]; then
@@ -199,7 +199,7 @@ else
     SKIPPED+=("bkit")
 fi
 
-# ── 3. npm 전역 패키지 업데이트 ─────────────────────────
+# ── 5. npm 전역 패키지 업데이트 ─────────────────────────
 section "npm 전역 패키지"
 if command -v npm &>/dev/null; then
     npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
@@ -217,7 +217,7 @@ else
     SKIPPED+=("npm")
 fi
 
-# ── 4. pip 설치된 패키지 자동 업데이트 ──────────────────────────
+# ── 6. pip 설치된 패키지 자동 업데이트 ──────────────────────────
 section "pip 설치된 패키지"
 pip_updated=0
 if command -v pip3 &>/dev/null; then
@@ -242,30 +242,7 @@ else
     SKIPPED+=("pip3")
 fi
 
-# ── 5. Docker Compose 프로젝트 자동 감지 및 업데이트 ────────────────────────────
-section "Docker Compose 프로젝트"
-docker_updated=0
-if command -v docker-compose &>/dev/null && command -v docker &>/dev/null; then
-    read -ra DOCKER_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
-    while IFS= read -r compose_file; do
-        project_dir=$(dirname "$compose_file")
-        project_name=$(basename "$project_dir")
-        log "점검: $project_name"
-        pushd "$project_dir" >/dev/null 2>&1 || { log "$project_name 진입 실패"; continue; }
-        docker-compose pull 2>>"$LOG_FILE" && {
-            docker-compose up -d 2>>"$LOG_FILE" && log "$project_name 업데이트 완료" || log "$project_name 재시작 실패"
-            docker_updated=$((docker_updated+1))
-        } || log "$project_name pull 실패"
-        popd >/dev/null 2>&1
-    done < <(find "${DOCKER_SEARCH_DIRS[@]}" -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
-    docker image prune -f 2>>"$LOG_FILE"
-    [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
-else
-    log "Docker 또는 Docker Compose 미실행/미설치 — 건너뜈"
-    SKIPPED+=("Docker Compose")
-fi
-
-# ── 6. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
+# ── 7. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
 if command -v git &>/dev/null; then
     git_pulled=()
@@ -324,7 +301,7 @@ else
     SKIPPED+=("Git")
 fi
 
-# ── 6-1. Obsidian-Wiki 자동 동기화 ───────────────────────
+# ── 8. Obsidian-Wiki 자동 동기화 ───────────────────────
 section "Obsidian-Wiki 동기화"
 WIKI_DIR="${OBSIDIAN_WIKI_DIR:-$HOME/Project/Obsidian-Wiki}"
 if [ -d "$WIKI_DIR/.git" ]; then
@@ -353,7 +330,7 @@ else
     SKIPPED+=("Obsidian-Wiki")
 fi
 
-# ── 7. 시스템 상태 확인 (메모리, 디스크, CPU 온도) ─────────────────────────────────
+# ── 9. 시스템 상태 확인 (메모리, 디스크, CPU 온도) ─────────────────────────────────
 section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
 DISK_AVAIL_K=$(df / | tail -1 | awk '{print $4}')
@@ -390,7 +367,7 @@ if command -v smartctl &>/dev/null; then
     fi
 fi
 
-# ── 8. systemd 서비스 상태 확인 ─────────────────────────────────
+# ── 10. systemd 서비스 상태 확인 ─────────────────────────────────
 section "systemd 서비스 상태"
 if command -v systemctl &>/dev/null; then
     failed_units=$(systemctl list-units --failed --no-pager 2>/dev/null | grep "loaded failed failed" | awk '{print $1}')
@@ -408,7 +385,7 @@ else
     SKIPPED+=("systemd")
 fi
 
-# ── 9. 커널 업데이트 상태 확인 ─────────────────────────────────
+# ── 11. 커널 업데이트 상태 확인 ─────────────────────────────────
 section "커널 업데이트 상태"
 if [ -f /var/run/reboot-required ]; then
     log "커널 업데이트: 재부팅 필요"
@@ -418,7 +395,7 @@ else
     RESULTS+=("커널: 최신")
 fi
 
-# ── 11. 보안 업데이트 확인 ─────────────────────────────────
+# ── 12. 보안 업데이트 확인 ─────────────────────────────────
 section "보안 업데이트"
 if command -v apt &>/dev/null; then
     security_updates=$(apt list --upgradable 2>/dev/null | grep -i security | wc -l)
@@ -442,7 +419,7 @@ ${all_names}")
     fi
 fi
 
-# ── 12. 파일시스템 무결성 확인 (주간 체크) ─────────────────────────────────
+# ── 13. 파일시스템 무결성 확인 (주간 체크) ─────────────────────────────────
 section "파일시스템 무결성"
 DOW=$(date +%w)  # 0=일요일, 1=월요일, ... 6=토요일
 if [ "$DOW" -eq 0 ]; then  # 일요일에만 실행
@@ -454,7 +431,7 @@ else
     log "fsck 체크: 다음 일요일에 실행 예정"
 fi
 
-# ── 13. Orphaned 프로세스 정리 ─────────────────────────────────
+# ── 14. Orphaned 프로세스 정리 ─────────────────────────────────
 section "Orphaned 프로세스"
 zombie_count=$(ps aux | grep -c " <defunct>")
 if [ "$zombie_count" -gt 1 ]; then  # grep 자신 제외
@@ -465,7 +442,7 @@ else
     RESULTS+=("Orphaned 프로세스: 없음")
 fi
 
-# ── 14. 로그 정리 (30일 이상) ───────────────────────────
+# ── 15. 로그 정리 (30일 이상) ───────────────────────────
 section "로그 정리"
 # 프로젝트 로그 및 시스템 로그 정리
 find "$LOG_STAGING_DIR" -name "maintenance_ubuntu_*.log" -mtime +$LOG_RETENTION_DAYS -delete 2>/dev/null
@@ -488,7 +465,7 @@ else
 fi
 log "시스템 로그 정리 완료"
 
-# ── 15. 텔레그램 보고 ─────────────────────────────────────
+# ── 16. 텔레그램 보고 ─────────────────────────────────────
 HOSTNAME=$(hostname)
 MSG="🔧 $HOSTNAME 일일 점검 완료
 📅 $(date '+%Y-%m-%d %H:%M')

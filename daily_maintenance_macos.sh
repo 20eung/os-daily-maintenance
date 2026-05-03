@@ -131,7 +131,7 @@ else
     SKIPPED+=("Homebrew")
 fi
 
-# ── 1-2. Homebrew Cask (greedy) 업데이트 ──────────────────
+# ── 2. Homebrew Cask (greedy) 업데이트 ──────────────────
 section "Cask (greedy)"
 if command -v brew &>/dev/null; then
     cask_outdated=$(brew outdated --greedy 2>/dev/null | wc -l | tr -d ' ')
@@ -153,7 +153,7 @@ else
     SKIPPED+=("Cask")
 fi
 
-# ── 1-3. cokacdir 업데이트 ────────────────────────────────
+# ── 3. cokacdir 업데이트 ────────────────────────────────
 section "cokacdir"
 if command -v cokacctl &>/dev/null; then
     cokacctl update 2>>"$LOG_FILE" && {
@@ -168,7 +168,7 @@ else
     SKIPPED+=("cokacdir")
 fi
 
-# ── 2. Claude Code 업데이트 ───────────────────────────────
+# ── 4. Claude Code 업데이트 ───────────────────────────────
 section "Claude Code"
 if command -v claude &>/dev/null; then
     CLAUDE_BEFORE=$(claude --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -192,7 +192,7 @@ else
     SKIPPED+=("Claude")
 fi
 
-# ── 3. bkit 플러그인 업데이트 ─────────────────────────────
+# ── 5. bkit 플러그인 업데이트 ─────────────────────────────
 section "bkit 플러그인"
 BKIT_PLUG_PATH="$HOME/.claude/plugins/installed_plugins.json"
 if [ -f "$BKIT_PLUG_PATH" ]; then
@@ -220,7 +220,7 @@ else
     SKIPPED+=("bkit")
 fi
 
-# ── 4. npm 전역 패키지 업데이트 ──────────────────────────
+# ── 6. npm 전역 패키지 업데이트 ──────────────────────────
 section "npm 전역 패키지"
 if command -v npm &>/dev/null; then
     npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
@@ -238,7 +238,7 @@ else
     SKIPPED+=("npm")
 fi
 
-# ── 5. pip 설치된 패키지 업데이트 ─────────────────────────
+# ── 7. pip 설치된 패키지 업데이트 ─────────────────────────
 section "pip 설치된 패키지"
 pip_updated=0
 if command -v pip3 &>/dev/null; then
@@ -284,78 +284,7 @@ else
     SKIPPED+=("pip3")
 fi
 
-# ── 6. Docker 업데이트 ─────────────────────────────────────
-# 6-1. Docker Desktop 앱 업데이트 (4.38+ 지원)
-if command -v docker &>/dev/null; then
-    DOCKER_APP_VER=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null || echo "unknown")
-    log "현재 Docker Desktop 앱 버전: $DOCKER_APP_VER"
-    # Docker Desktop이 실행 중이면 업데이트 체크 수행 (출력은 로그에만)
-    if docker ps >/dev/null 2>&1; then
-        docker desktop update -q >>"$LOG_FILE" 2>&1 || log "Docker Desktop 앱 업데이트 체크 건너뜀"
-    else
-        log "Docker Desktop 미실행 — 앱 업데이트 체크 건너뜀"
-    fi
-fi
-
-# 6-2. Docker Compose 프로젝트 자동 감지 및 업데이트
-section "Docker Compose 프로젝트"
-docker_updated=0
-# Docker 데몬 통신 성공 여부를 구체적으로 체크
-DOCKER_INFO_STATUS=0
-if command -v docker &>/dev/null; then
-    docker info >>"$LOG_FILE" 2>&1
-    DOCKER_INFO_STATUS=$?
-fi
-
-if [ "$DOCKER_INFO_STATUS" -eq 0 ]; then
-    DOCKER_COMPOSE_CMD=""
-    if command -v docker-compose &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker-compose"
-    elif docker compose version &>/dev/null 2>&1; then
-        DOCKER_COMPOSE_CMD="docker compose"
-    fi
-
-    if [ -n "$DOCKER_COMPOSE_CMD" ]; then
-        # 모든 프로젝트 디렉토리 순회하며 docker-compose.yml 탐색
-        read -ra DOCKER_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
-        while IFS= read -r compose_file; do
-            [ -z "$compose_file" ] && continue
-            project_dir=$(dirname "$compose_file")
-            project_name=$(basename "$project_dir")
-            log "Docker 점검: $project_name"
-            pushd "$project_dir" >/dev/null 2>&1 || { log "$project_name 진입 실패"; continue; }
-            UP_OUTPUT=$($DOCKER_COMPOSE_CMD up -d 2>&1)
-            UP_RESULT=$?
-            popd >/dev/null 2>&1
-
-            if [ $UP_RESULT -eq 0 ]; then
-                log "$project_name 업데이트 완료"
-                docker_updated=$((docker_updated+1))
-            else
-                # 포트 충돌 에러는 특별히 처리
-                if echo "$UP_OUTPUT" | grep -q "port is already allocated"; then
-                    log "$project_name: 포트 충돌 (이미 사용 중) — 수동 처리 필요"
-                    ERRORS+=("Docker $project_name: 포트 충돌")
-                else
-                    log "$project_name 재시작 실패"
-                    ERRORS+=("Docker $project_name: 시작 실패")
-                fi
-                echo "$UP_OUTPUT" >> "$LOG_FILE"
-            fi
-        done < <(find "${DOCKER_SEARCH_DIRS[@]}" -maxdepth 3 -name "docker-compose.yml" -type f -not -path "*/node_modules/*" -not -path "*/.*/*" 2>/dev/null | sort -u)
-        
-        docker image prune -f 2>>"$LOG_FILE"
-        [ "$docker_updated" -gt 0 ] && UPDATED+=("Docker Compose ${docker_updated}개") || RESULTS+=("Docker: 최신")
-    else
-        log "Docker Compose 미설치 — 건너뜀"
-        SKIPPED+=("Docker Compose")
-    fi
-else
-    log "Docker 미실행 또는 미설치 — 건너뜀"
-    SKIPPED+=("Docker")
-fi
-
-# ── 7. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
+# ── 8. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
 if command -v git &>/dev/null; then
     git_pulled=()
@@ -414,7 +343,7 @@ else
     SKIPPED+=("Git")
 fi
 
-# ── 7-1. Obsidian-Wiki 자동 동기화 ───────────────────────
+# ── 9. Obsidian-Wiki 자동 동기화 ───────────────────────
 section "Obsidian-Wiki 동기화"
 WIKI_DIR="${OBSIDIAN_WIKI_DIR:-$HOME/Project/Obsidian-Wiki}"
 if [ -d "$WIKI_DIR/.git" ]; then
@@ -443,7 +372,7 @@ else
     SKIPPED+=("Obsidian-Wiki")
 fi
 
-# ── 8. conda 업데이트 ─────────────────────────────────────
+# ── 10. conda 업데이트 ─────────────────────────────────────
 section "conda"
 
 # conda 환경 로드 (shell function 활성화)
@@ -473,7 +402,7 @@ else
     SKIPPED+=("conda")
 fi
 
-# ── 9. 시스템 상태 확인 ───────────────────────────────────
+# ── 11. 시스템 상태 확인 ───────────────────────────────────
 section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
 DISK_AVAIL_K=$(df / | tail -1 | awk '{print $4}')
@@ -519,7 +448,7 @@ if command -v smartctl &>/dev/null; then
     fi
 fi
 
-# ── 9-2. 서비스 상태 확인 (launchctl) ────────────────────
+# ── 12. 서비스 상태 확인 (launchctl) ────────────────────
 section "서비스 상태"
 # 진짜 비정상 종료된 서비스 (Exit Code가 양수인 것들: 오류 코드)
 # -9는 정상 (Launch-On-Demand 서비스가 아직 시작 안 됨)
@@ -535,7 +464,7 @@ else
     RESULTS+=("서비스: 정상")
 fi
 
-# ── 10. macOS 시스템 업데이트 확인 (보고만) ───────────────
+# ── 13. macOS 시스템 업데이트 확인 (보고만) ───────────────
 section "macOS 시스템 업데이트"
 SW_LIST=$(softwareupdate -l 2>&1)
 SW_COUNT=$(echo "$SW_LIST" | grep -c '^\*' || true)
@@ -560,7 +489,7 @@ else
     RESULTS+=("macOS: 최신")
 fi
 
-# ── 12. Orphaned 프로세스 확인 ────────────────────────────
+# ── 14. Orphaned 프로세스 확인 ────────────────────────────
 section "Orphaned 프로세스"
 zombie_count=$(ps aux 2>/dev/null | grep -c " <defunct>" || echo 0)
 if [ "$zombie_count" -gt 1 ]; then  # grep 자신 제외
@@ -571,7 +500,7 @@ else
     RESULTS+=("Orphaned 프로세스: 없음")
 fi
 
-# ── 12-1. 파일시스템 무결성 확인 (주간 체크 - 일요일) ───────
+# ── 15. 파일시스템 무결성 확인 (주간 체크 - 일요일) ───────
 section "파일시스템 무결성"
 DOW=$(date +%w)  # 0=일요일
 if [ "$DOW" -eq 0 ]; then
@@ -592,7 +521,7 @@ else
     log "파일시스템 점검: 다음 일요일에 실행 예정"
 fi
 
-# ── 13. 로그 파일 정리 (30일 이상 된 것 삭제) ────────────
+# ── 16. 로그 파일 정리 (30일 이상 된 것 삭제) ────────────
 section "로그 정리"
 
 # 프로젝트 로그 및 시스템 로그 정리
@@ -626,7 +555,7 @@ fi
 log "전체 로그 정리 완료"
 [ "$freed" -gt 0 ] && UPDATED+=("로그 정리 ${freed}MB 확보") || RESULTS+=("로그: 정리 완료")
 
-# ── 14. 텔레그램 보고 ─────────────────────────────────────
+# ── 17. 텔레그램 보고 ─────────────────────────────────────
 log ""
 log "=== 점검 완료 ==="
 HOSTNAME=$(hostname)
