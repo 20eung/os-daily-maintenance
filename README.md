@@ -28,7 +28,7 @@ macOS 및 Ubuntu 시스템과 다양한 개발 환경(Homebrew, APT, npm, pip, D
 **개발 환경 관리:**
 - **🤖 AI 개발 도구**: Claude Code 및 `bkit` 플러그인의 실시간 버전 동기화
 - **💻 개발 라이브러리**: `npm` 전역 패키지 및 설치된 모든 `pip3` 라이브러리 자동 감지 및 업데이트
-- **🐳 컨테이너 최적화**: Docker 앱 업데이트 체크(macOS) 및 모든 `docker-compose.yml` 자동 발견하여 이미지 `pull` & 컨테이너 재시작, 미사용 이미지 정리
+- **🐳 컨테이너 최적화**: Watchtower가 실행 중인 컨테이너의 이미지 업데이트를 자동으로 담당
 - **📂 Git 프로젝트 동기화**: `USER_PROJECT_DIR` 하위 모든 저장소의 로컬/원격 상태 점검 및 안전한 자동 병합
 
 **유지보수 & 모니터링:**
@@ -160,6 +160,10 @@ os-daily-maintenance/
 ---
 
 ## 📜 버전 히스토리 (Changelog)
+
+### v2.2.7 (2026-05-03)
+- **Docker Compose 섹션 제거**: `docker compose up -d` 자동 실행이 삭제된 컨테이너를 재생성하는 문제 해결
+- **Watchtower 위임**: 컨테이너 이미지 업데이트는 Watchtower가 전담 (macOS/Linux 공통 적용)
 
 ### v2.2.6 (2026-04-11)
 - **cokacdir 업데이트 추가**: macOS/Linux 스크립트에 cokacdir 자동 업데이트 섹션 추가
