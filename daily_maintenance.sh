@@ -241,6 +241,9 @@ if [ -f "$BKIT_PLUG_PATH" ]; then
             log "bkit 업데이트 실패 (또는 최신 상태)"
             RESULTS+=("bkit: $BKIT_BEFORE (확인불가)")
         }
+    else
+        log "claude 미설치 — bkit 업데이트 건너뜀"
+        SKIPPED+=("bkit (claude 미설치)")
     fi
 else
     log "bkit 플러그인 미설치 — 건너뜀"
@@ -314,8 +317,10 @@ if command -v git &>/dev/null; then
     git_pull_failed=()
     git_ahead=()
     git_noremote=()
+    git_repo_count=0
     read -ra GIT_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r repo; do
+        git_repo_count=$((git_repo_count+1))
         repo_name=$(basename "$repo")
         branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
         remote=$(git -C "$repo" remote 2>/dev/null | head -1)
@@ -358,7 +363,12 @@ if command -v git &>/dev/null; then
     [ ${#git_pull_failed[@]} -gt 0 ] && { for r in "${git_pull_failed[@]}"; do ERRORS+=("Git: $r"); done; }
     [ ${#git_ahead[@]} -gt 0 ]       && { for r in "${git_ahead[@]}"; do ERRORS+=("Git push 필요: $r"); done; }
     [ ${#git_noremote[@]} -gt 0 ]    && log "remote 없음: ${git_noremote[*]}"
-    [ ${#git_pulled[@]} -eq 0 ] && [ ${#git_pull_failed[@]} -eq 0 ] && [ ${#git_ahead[@]} -eq 0 ] && RESULTS+=("GitHub: 모두 최신")
+    if [ "$git_repo_count" -eq 0 ]; then
+        log "Git 저장소 없음 — 건너뜀 ($USER_PROJECT_DIRS)"
+        SKIPPED+=("GitHub (저장소 없음)")
+    elif [ ${#git_pulled[@]} -eq 0 ] && [ ${#git_pull_failed[@]} -eq 0 ] && [ ${#git_ahead[@]} -eq 0 ]; then
+        RESULTS+=("GitHub: 모두 최신")
+    fi
 else
     log "git 미설치 — 건너뜀"
     SKIPPED+=("Git")
@@ -598,6 +608,9 @@ if [ "$DOW" -eq 0 ]; then
         if command -v fsck &>/dev/null && [ "$SUDO_AVAILABLE" = true ]; then
             log "주간 fsck 체크 스케줄됨 (다음 재부팅 시 실행)"
             sudo touch /forcefsck 2>/dev/null || log "fsck 플래그 설정 실패"
+        else
+            log "fsck 사용 불가 (미설치 또는 sudo 없음) — 건너뜀"
+            SKIPPED+=("fsck")
         fi
     fi
 else
