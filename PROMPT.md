@@ -2,6 +2,7 @@
 
 ## 목표
 macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 점검하고 최신 상태로 유지하는 견고한 Bash 쉘 스크립트를 작성합니다.
+OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처리하며, **단일 파일(`daily_maintenance.sh`)로 Linux/macOS를 모두 지원**합니다.
 
 ## 핵심 요구사항
 
@@ -34,11 +35,18 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 - `behind`만 존재할 경우 자동 `pull` 수행. `ahead`가 있거나 `diverged` 상태면 경고 목록에 추가하여 수동 처리를 유도.
 
 ### 6. 시스템 관리 및 보고
-- **Conda**: `update conda -y` 및 `clean --all` 수행.
+- **Conda**: `update conda -y` 및 `clean --all` 수행. (macOS 전용)
 - **시스템**: `softwareupdate -l`(macOS) 또는 `apt list --upgradable`(Ubuntu) 정보를 확인.
 - **디스크**: 사용량이 80%를 초과할 경우 경고 알림.
 - **로그 정리**: `/Library/Logs`, `~/Library/Logs`, 프로젝트 로그 디렉토리에서 `$LOG_RETENTION_DAYS`가 지난 로그를 삭제하고 확보 결과 보고.
 - **텔레그램 알림**: `curl`을 사용하여 업데이트된 항목(✅), 최신인 상태(✔), 오류/경고 항목(⚠️)을 포맷팅하여 전송.
+
+### 7. Hermes Agent 연동 (Linux 전용, 섹션 16)
+- `command -v hermes`로 hermes 바이너리 경로를 **동적** 탐색 (경로 하드코딩 금지).
+- `hermes` 미설치 시 `SKIPPED` 처리.
+- `~/.hermes/hermes-agent/` 디렉토리의 git 커밋 해시를 `.hermes-last-commit` 파일과 비교하여 변경 감지.
+- 업데이트 감지 시 `systemctl --user restart hermes-dashboard` 실행 후 `.hermes-last-commit` 갱신.
+- `systemctl --user`가 사용 불가한 환경에서는 SKIPPED 처리.
 
 ## 🚀 릴리즈 관리 규칙 (Release Rules)
 1. **보안 확인**: `.env` 등 민감 파일이 `.gitignore`에 포함되었는지 확인 후 `push`합니다.
@@ -50,4 +58,4 @@ macOS 및 Ubuntu 환경에서 개발 도구와 시스템을 매일 자동으로 
 ## 환경 설정
 - **기본 환경**: macOS M1 Pro & Ubuntu Linux, bash, UTF-8 모드
 - **경로**: 사용자의 홈 디렉토리 기준 (`.env` 설정을 따름)
-- **로깅**: 상세 실행 과정은 날짜별 로그 파일(`logs/maintenance_macos_*.log` 또는 `logs/maintenance_ubuntu_*.log`)에 기록.
+- **로깅**: 상세 실행 과정은 날짜별 로그 파일(`logs/maintenance_linux_*.log` 또는 `logs/maintenance_darwin_*.log`)에 기록.

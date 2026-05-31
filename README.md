@@ -34,6 +34,7 @@ macOS 및 Ubuntu 시스템과 다양한 개발 환경(Homebrew, APT, npm, pip, D
 **유지보수 & 모니터링:**
 - **🧹 자동 정리**: 30일 경과 로그 자동 삭제, Orphaned 프로세스 감지
 - **📢 실시간 보고**: 작업 결과를 한눈에 보기 쉬운 포맷으로 텔레그램 봇을 통해 즉시 전송
+- **🤖 Hermes Agent 연동 (Ubuntu 전용)**: git 커밋 해시 비교로 업데이트 감지 시 `hermes-dashboard` systemd 서비스 자동 재시작
 - **🛡️ 범용성 및 견고함**:
   - 도구(brew, docker 등) 미설치 시 자동으로 건너뛰고 리포트에 표시
   - `.env` 기반의 완전한 독립적 환경 설정 지원 (Portable Config)
@@ -110,13 +111,8 @@ nano .env.darwin
 # crontab 편집
 crontab -e
 
-# 아래 내용 추가 (macOS 예시)
-00 01 * * * /Users/YOUR_USERNAME/Project/os-daily-maintenance/daily_maintenance_macos.sh
-```
-
-```bash
-# 아래 내용 추가 (Ubuntu 예시)
-00 01 * * * /home/YOUR_USERNAME/Project/os-daily-maintenance/daily_maintenance_ubuntu.sh
+# 아래 내용 추가 (macOS / Ubuntu 공통)
+00 01 * * * /path/to/os-daily-maintenance/daily_maintenance.sh
 ```
 
 ---
@@ -144,8 +140,7 @@ YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/bin/find
 
 ```text
 os-daily-maintenance/
-├── daily_maintenance_macos.sh  # macOS 실행 스크립트 (Homebrew 기반)
-├── daily_maintenance_ubuntu.sh # Ubuntu/Debian 실행 스크립트 (APT 기반)
+├── daily_maintenance.sh        # 통합 실행 스크립트 (Linux/macOS 공통)
 ├── .env                        # 공통 환경 설정 (텔레그램 등)
 ├── .env.darwin                 # macOS 로컬 전용 설정 (Git 제외)
 ├── .env.linux                  # Linux 로컬 전용 설정 (Git 제외)
@@ -159,7 +154,40 @@ os-daily-maintenance/
 
 ---
 
+## 🔄 실행 섹션 (Section Overview)
+
+`daily_maintenance.sh`는 다음 순서로 실행됩니다:
+
+| # | 섹션 | OS |
+|---|------|----|
+| 1 | OS 패키지 업데이트 (Homebrew / APT) | macOS / Linux |
+| 2 | cokacdir 업데이트 | 공통 |
+| 3 | Claude Code 업데이트 | 공통 |
+| 4 | bkit 플러그인 업데이트 | 공통 |
+| 5 | npm 전역 패키지 업데이트 | 공통 |
+| 6 | pip 설치된 패키지 업데이트 | 공통 |
+| 7 | GitHub 저장소 동기화 | 공통 |
+| 8 | Obsidian-Wiki 자동 동기화 | 공통 |
+| 9 | conda 업데이트 | macOS 전용 |
+| 10 | 시스템 상태 확인 (디스크·메모리·온도) | 공통 |
+| 11 | 서비스 상태 확인 (systemd / launchctl) | 공통 |
+| 12 | 시스템 업데이트 확인 (apt / softwareupdate) | 공통 |
+| 13 | 파일시스템 무결성 확인 (주간·일요일) | 공통 |
+| 14 | Orphaned 프로세스 확인 | 공통 |
+| 15 | 로그 정리 | 공통 |
+| 16 | Hermes Agent 업데이트 및 대시보드 재시작 | Linux 전용 |
+| 17 | 텔레그램 보고 | 공통 |
+
+---
+
 ## 📜 버전 히스토리 (Changelog)
+
+### v3.0.0 (2026-05-31)
+- **Linux/macOS 통합**: `daily_maintenance_linux.sh` + `daily_maintenance_macos.sh` → `daily_maintenance.sh` 단일 파일로 통합
+- **Hermes Agent 섹션 추가 (섹션 16, Linux 전용)**: git 커밋 해시 비교로 업데이트 감지, `hermes-dashboard` systemd 서비스 자동 재시작
+- **pip sudo 재시도 로직 강화**: macOS의 더 견고한 로직을 공통 적용
+- **텔레그램 보고 개선**: 배열 10개 제한·SKIPPED 카운트 집계 macOS 방식으로 통일
+- **LOG_FILE 이름 OS별 자동 구분**: `maintenance_linux_*` / `maintenance_darwin_*`
 
 ### v2.4.3 (2026-05-03)
 - **Docker Compose 섹션 제거**: `docker compose up -d` 자동 실행이 삭제된 컨테이너를 재생성하는 문제 해결
@@ -204,7 +232,7 @@ os-daily-maintenance/
 ---
 
 ### 기존 히스토리
-- [x] Multi-OS (macOS & Ubuntu) 지원 스크립트 분리
+- [x] Multi-OS (macOS & Ubuntu) 지원 스크립트 분리 → v3.0.0에서 단일 파일로 재통합
 - [x] Docker Desktop 앱 자동 업데이트 연동 (macOS 전용)
 - [x] Git 저장소 간 충돌(Diverged) 자동 감지 로직
 - [x] 시스템/사용자 로그 정리 범위 확대
