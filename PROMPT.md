@@ -25,8 +25,9 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 - **pip3**: `boto3`, `requests`, `anthropic`, `pandas`, `websockets` 등 핵심 패키지 리스트를 상수로 관리하고, `pip3 install --upgrade` 직전에 버전 체크를 통해 새 버전이 있을 때만 설치하도록 순회 처리.
 
 ### 4. Docker 및 이미지 관리
+- **Watchtower 감지**: `docker ps`에서 Watchtower 컨테이너가 실행 중이면 자동으로 SKIPPED 처리 (Watchtower가 이미지 업데이트 담당).
+- **Watchtower 없을 때**: 실행 중인 컨테이너별로 `docker pull`을 수행하고, 이미지 ID 변경 시 `docker stop` + `docker start`로 자동 재시작.
 - **Docker Desktop (macOS)**: `docker desktop update -q` 명령어로 앱 자체 업데이트 시도 (버전 4.38 이상).
-- **Public 이미지**: `nginx:alpine`, `portainer/portainer-ce`, `lipanski/docker-static-website` 등을 `docker pull` 하고 이미지 ID 변경 여부로 업데이트 여부 판별.
 - **정리**: `docker image prune -f` 수행.
 
 ### 5. Git 저장소 동기화 (핵심 로직)

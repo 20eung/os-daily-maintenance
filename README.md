@@ -28,7 +28,7 @@ macOS 및 Ubuntu 시스템과 다양한 개발 환경(Homebrew, APT, npm, pip, D
 **개발 환경 관리:**
 - **🤖 AI 개발 도구**: Claude Code 및 `bkit` 플러그인의 실시간 버전 동기화
 - **💻 개발 라이브러리**: `npm` 전역 패키지 및 설치된 모든 `pip3` 라이브러리 자동 감지 및 업데이트
-- **🐳 컨테이너 최적화**: Watchtower가 실행 중인 컨테이너의 이미지 업데이트를 자동으로 담당
+- **🐳 Docker 컨테이너 관리**: Watchtower 실행 중이면 자동 위임(SKIPPED), 없으면 컨테이너별 `docker pull` 후 이미지 변경 시 자동 재시작
 - **📂 Git 프로젝트 동기화**: `USER_PROJECT_DIR` 하위 모든 저장소의 로컬/원격 상태 점검 및 안전한 자동 병합
 
 **유지보수 & 모니터링:**
@@ -169,18 +169,27 @@ os-daily-maintenance/
 | 7 | GitHub 저장소 동기화 | 공통 |
 | 8 | Obsidian-Wiki 자동 동기화 | 공통 |
 | 9 | conda 업데이트 | macOS 전용 |
-| 10 | 시스템 상태 확인 (디스크·메모리·온도) | 공통 |
-| 11 | 서비스 상태 확인 (systemd / launchctl) | 공통 |
-| 12 | 시스템 업데이트 확인 (apt / softwareupdate) | 공통 |
-| 13 | 파일시스템 무결성 확인 (주간·일요일) | 공통 |
-| 14 | Orphaned 프로세스 확인 | 공통 |
-| 15 | 로그 정리 | 공통 |
-| 16 | Hermes Agent 업데이트 및 대시보드 재시작 | Linux 전용 |
-| 17 | 텔레그램 보고 | 공통 |
+| 10 | Docker 컨테이너 관리 (Watchtower 감지 후 자동 분기) | 공통 |
+| 11 | 시스템 상태 확인 (디스크·메모리·온도) | 공통 |
+| 12 | 서비스 상태 확인 (systemd / launchctl) | 공통 |
+| 13 | 시스템 업데이트 확인 (apt / softwareupdate) | 공통 |
+| 14 | 파일시스템 무결성 확인 (주간·일요일) | 공통 |
+| 15 | Orphaned 프로세스 확인 | 공통 |
+| 16 | 로그 정리 | 공통 |
+| 17 | Hermes Agent 업데이트 및 대시보드 재시작 | Linux 전용 |
+| 18 | 텔레그램 보고 | 공통 |
 
 ---
 
 ## 📜 버전 히스토리 (Changelog)
+
+### v3.0.1 (2026-05-31)
+- **fix — silent skip 누락 3곳 보완**:
+  - `bkit`: `claude` 미설치 서버에서 SKIPPED 배열 미추가 버그 수정
+  - `GitHub`: 저장소가 0개일 때 "모두 최신" 오탐 방지 (`git_repo_count` 추가)
+  - `fsck`: 미설치 또는 sudo 없을 때 결과 미기록 문제 수정
+- **feat — Docker 섹션 추가 (섹션 10)**: Watchtower 실행 중이면 자동 SKIPPED, 없으면 컨테이너별 `docker pull` 후 이미지 변경 시 자동 재시작
+- **chore — CHANGELOG.md 신규 추가**
 
 ### v3.0.0 (2026-05-31)
 - **Linux/macOS 통합**: `daily_maintenance_linux.sh` + `daily_maintenance_macos.sh` → `daily_maintenance.sh` 단일 파일로 통합
