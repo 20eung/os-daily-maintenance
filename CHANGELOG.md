@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.1.0] - 2026-05-31
+
+### Fixed
+- **pip**: `--break-system-packages` 플래그 제거 — Ubuntu 22.04+ 시스템 Python 패키지 파손 위험 해소
+- **Docker**: `docker stop/start` → `docker compose up -d` 로 변경 — 새 이미지가 실제로 적용되지 않던 버그 수정 (compose 라벨 자동 감지)
+- **fsck**: `sudo touch /forcefsck` → `sudo tune2fs -C 1 <ROOT_DEV>` 로 변경 — Ubuntu 20.04+ 호환 방식 적용 (`findmnt` 로 루트 디바이스 자동 감지)
+
+### Changed
+- **Docker 이미지 pull 빈도**: 매일 → **주 1회 (일요일)** — HDD 환경에서 발생하는 iowait 스파이크 방지
+
+---
+
 ## [v3.0.1] - 2026-05-31
 
 ### Fixed

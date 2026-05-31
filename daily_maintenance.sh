@@ -273,27 +273,24 @@ section "pip 설치된 패키지"
 pip_updated=0
 if command -v pip3 &>/dev/null; then
     BREAK_FLAG=""
-    if pip3 install --help 2>/dev/null | grep -q "break-system-packages"; then
-        BREAK_FLAG="--break-system-packages"
-    fi
-    PIP_LIST_CMD="pip3 list --outdated $BREAK_FLAG"
+    PIP_LIST_CMD="pip3 list --outdated"
     if $PIP_LIST_CMD >/dev/null 2>&1; then
         while IFS= read -r line; do
             pkg=$(echo "$line" | awk '{print $1}')
             if [ -n "$pkg" ]; then
-                pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
+                pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
                     log "$pkg 업그레이드 완료"
                     pip_updated=$((pip_updated+1))
                 } || log "$pkg 업그레이드 실패"
             fi
-        done < <($PIP_LIST_CMD 2>/dev/null | tail -n +3 | grep -v "^pydantic-core")
+        done < <($PIP_LIST_CMD 2>/dev/null | tail -n +3 | grep -v "^pydantic-core" | grep -v "^Package")
         [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
     else
         if sudo pip3 list --outdated >/dev/null 2>&1; then
             while IFS= read -r line; do
                 pkg=$(echo "$line" | awk '{print $1}')
                 if [ -n "$pkg" ]; then
-                    sudo pip3 install --upgrade "$pkg" $BREAK_FLAG -q 2>>"$LOG_FILE" && {
+                    sudo pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
                         log "$pkg 업그레이드 완료 (sudo)"
                         pip_updated=$((pip_updated+1))
                     } || log "$pkg 업그레이드 실패 (sudo)"
@@ -438,6 +435,11 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
         log "Watchtower 실행 중 ($WATCHTOWER_NAME) — 컨테이너 업데이트 건너뜀"
         SKIPPED+=("Docker (Watchtower가 관리)")
     else
+        DOW_DOCKER=$(date +%w)
+        if [ "$DOW_DOCKER" -ne 0 ]; then
+            log "Docker 이미지 업데이트: 주 1회 (일요일) 실행 — 오늘은 건너뜀"
+            SKIPPED+=("Docker 이미지 pull (일요일에 실행)")
+        else
         docker_updated=()
         docker_failed=()
         while IFS= read -r container; do
@@ -445,14 +447,23 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
             [ -z "$image" ] && continue
             pull_out=$(docker pull "$image" 2>&1)
             if echo "$pull_out" | grep -q "Status: Downloaded newer image"; then
-                docker stop "$container" >/dev/null 2>&1
-                docker start "$container" >/dev/null 2>&1 && {
-                    log "업데이트 및 재시작 완료: $container ($image)"
-                    docker_updated+=("$container")
-                } || {
-                    log "재시작 실패: $container"
-                    docker_failed+=("$container")
-                }
+                # compose 프로젝트 찾기 (라벨 기반)
+                compose_file=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$container" 2>/dev/null)
+                compose_dir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$container" 2>/dev/null)
+                if [ -n "$compose_dir" ] && [ -f "${compose_file:-$compose_dir/docker-compose.yml}" ]; then
+                    # compose 관리 컨테이너: up -d 로 재생성
+                    docker compose -f "${compose_file:-$compose_dir/docker-compose.yml}" up -d 2>>"$LOG_FILE" && {
+                        log "업데이트 및 재생성 완료 (compose): $container ($image)"
+                        docker_updated+=("$container")
+                    } || {
+                        log "compose 재생성 실패: $container"
+                        docker_failed+=("$container")
+                    }
+                else
+                    # 일반 컨테이너: stop → rm → run (기존 run 명령 재현 불가 → 경고)
+                    log "경고: $container 는 compose 외 컨테이너 — 수동 재생성 필요 (이미지만 pull됨)"
+                    ERRORS+=("Docker 수동 재생성 필요: $container (새 이미지 pull 완료)")
+                fi
             else
                 log "최신 상태: $container ($image)"
             fi
@@ -460,6 +471,7 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
         [ ${#docker_updated[@]} -gt 0 ] && UPDATED+=("Docker 재시작: ${docker_updated[*]}")
         [ ${#docker_failed[@]} -gt 0 ]  && { for c in "${docker_failed[@]}"; do ERRORS+=("Docker 재시작 실패: $c"); done; }
         [ ${#docker_updated[@]} -eq 0 ] && [ ${#docker_failed[@]} -eq 0 ] && RESULTS+=("Docker: 모두 최신")
+        fi  # DOW_DOCKER 주 1회 조건 끝
     fi
 else
     log "Docker 미설치 또는 데몬 미실행 — 건너뜀"
@@ -642,8 +654,19 @@ if [ "$DOW" -eq 0 ]; then
         fi
     else
         if command -v fsck &>/dev/null && [ "$SUDO_AVAILABLE" = true ]; then
-            log "주간 fsck 체크 스케줄됨 (다음 재부팅 시 실행)"
-            sudo touch /forcefsck 2>/dev/null || log "fsck 플래그 설정 실패"
+            # Ubuntu 20.04+: /forcefsck 미지원 → tune2fs 로 다음 재부팅 시 fsck 예약
+            ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null | head -1)
+            if [ -n "$ROOT_DEV" ]; then
+                sudo tune2fs -C 1 "$ROOT_DEV" 2>/dev/null && {
+                    log "주간 fsck 스케줄됨: $ROOT_DEV (다음 재부팅 시 실행)"
+                } || {
+                    log "tune2fs 실패 (ext4 외 파일시스템이거나 권한 문제) — 건너뜀"
+                    SKIPPED+=("fsck (tune2fs 실패)")
+                }
+            else
+                log "루트 디바이스 감지 실패 — fsck 건너뜀"
+                SKIPPED+=("fsck")
+            fi
         else
             log "fsck 사용 불가 (미설치 또는 sudo 없음) — 건너뜀"
             SKIPPED+=("fsck")

@@ -22,12 +22,11 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 
 ### 3. 개발 언어 및 라이브러리
 - **npm**: `npm update -g` 수행.
-- **pip3**: `boto3`, `requests`, `anthropic`, `pandas`, `websockets` 등 핵심 패키지 리스트를 상수로 관리하고, `pip3 install --upgrade` 직전에 버전 체크를 통해 새 버전이 있을 때만 설치하도록 순회 처리.
+- **pip3**: 설치된 모든 pip3 패키지를 `pip3 list --outdated` 로 감지하여 `pip3 install --upgrade` 순회 처리. `--break-system-packages` 플래그는 사용하지 않아 시스템 Python 보호.
 
 ### 4. Docker 및 이미지 관리
 - **Watchtower 감지**: `docker ps`에서 Watchtower 컨테이너가 실행 중이면 자동으로 SKIPPED 처리 (Watchtower가 이미지 업데이트 담당).
-- **Watchtower 없을 때**: 실행 중인 컨테이너별로 `docker pull`을 수행하고, 이미지 ID 변경 시 `docker stop` + `docker start`로 자동 재시작.
-- **Docker Desktop (macOS)**: `docker desktop update -q` 명령어로 앱 자체 업데이트 시도 (버전 4.38 이상).
+- **Watchtower 없을 때**: **주 1회(일요일)** 에만 실행. 실행 중인 컨테이너별로 `docker pull`을 수행하고, 이미지 변경 시 compose 라벨(`com.docker.compose.project.working_dir`)을 자동 감지하여 `docker compose up -d` 로 재생성. compose 외 컨테이너는 경고 메시지로 수동 처리 안내.
 - **정리**: `docker image prune -f` 수행.
 
 ### 5. Git 저장소 동기화 (핵심 로직)
