@@ -430,7 +430,43 @@ if [ "$OS_TYPE" = "darwin" ]; then
     fi
 fi
 
-# ── 10. 시스템 상태 확인 ─────────────────────────────────
+# ── 10. Docker 컨테이너 관리 ─────────────────────────────
+section "Docker"
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qi "watchtower"; then
+        WATCHTOWER_NAME=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i "watchtower" | head -1)
+        log "Watchtower 실행 중 ($WATCHTOWER_NAME) — 컨테이너 업데이트 건너뜀"
+        SKIPPED+=("Docker (Watchtower가 관리)")
+    else
+        docker_updated=()
+        docker_failed=()
+        while IFS= read -r container; do
+            image=$(docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null)
+            [ -z "$image" ] && continue
+            pull_out=$(docker pull "$image" 2>&1)
+            if echo "$pull_out" | grep -q "Status: Downloaded newer image"; then
+                docker stop "$container" >/dev/null 2>&1
+                docker start "$container" >/dev/null 2>&1 && {
+                    log "업데이트 및 재시작 완료: $container ($image)"
+                    docker_updated+=("$container")
+                } || {
+                    log "재시작 실패: $container"
+                    docker_failed+=("$container")
+                }
+            else
+                log "최신 상태: $container ($image)"
+            fi
+        done < <(docker ps --format '{{.Names}}' 2>/dev/null)
+        [ ${#docker_updated[@]} -gt 0 ] && UPDATED+=("Docker 재시작: ${docker_updated[*]}")
+        [ ${#docker_failed[@]} -gt 0 ]  && { for c in "${docker_failed[@]}"; do ERRORS+=("Docker 재시작 실패: $c"); done; }
+        [ ${#docker_updated[@]} -eq 0 ] && [ ${#docker_failed[@]} -eq 0 ] && RESULTS+=("Docker: 모두 최신")
+    fi
+else
+    log "Docker 미설치 또는 데몬 미실행 — 건너뜀"
+    SKIPPED+=("Docker")
+fi
+
+# ── 11. 시스템 상태 확인 ─────────────────────────────────
 section "시스템 상태"
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
 DISK_AVAIL_K=$(df / | tail -1 | awk '{print $4}')
@@ -499,7 +535,7 @@ if command -v smartctl &>/dev/null; then
     fi
 fi
 
-# ── 11. 서비스 상태 확인 ─────────────────────────────────
+# ── 12. 서비스 상태 확인 ─────────────────────────────────
 section "서비스 상태"
 if [ "$OS_TYPE" = "darwin" ]; then
     # macOS: launchctl (양수 exit code = 오류, apple 서비스 제외)
@@ -532,7 +568,7 @@ else
     fi
 fi
 
-# ── 12. 시스템 업데이트 확인 ─────────────────────────────
+# ── 13. 시스템 업데이트 확인 ─────────────────────────────
 if [ "$OS_TYPE" = "darwin" ]; then
     section "macOS 시스템 업데이트"
     SW_LIST=$(softwareupdate -l 2>&1)
@@ -586,7 +622,7 @@ ${all_names}")
     fi
 fi
 
-# ── 13. 파일시스템 무결성 확인 (주간 - 일요일) ───────────
+# ── 14. 파일시스템 무결성 확인 (주간 - 일요일) ───────────
 section "파일시스템 무결성"
 DOW=$(date +%w)
 if [ "$DOW" -eq 0 ]; then
@@ -617,7 +653,7 @@ else
     log "파일시스템 점검: 다음 일요일에 실행 예정"
 fi
 
-# ── 14. Orphaned 프로세스 확인 ────────────────────────────
+# ── 15. Orphaned 프로세스 확인 ────────────────────────────
 section "Orphaned 프로세스"
 zombie_count=$(ps aux 2>/dev/null | grep -c " <defunct>" || echo 0)
 if [ "$zombie_count" -gt 1 ]; then
@@ -628,7 +664,7 @@ else
     RESULTS+=("Orphaned 프로세스: 없음")
 fi
 
-# ── 15. 로그 정리 ────────────────────────────────────────
+# ── 16. 로그 정리 ────────────────────────────────────────
 section "로그 정리"
 find "$LOG_STAGING_DIR" -name "maintenance_*_*.log" -mtime +"$LOG_RETENTION_DAYS" -delete 2>/dev/null
 
@@ -667,7 +703,7 @@ else
 fi
 log "시스템 로그 정리 완료"
 
-# ── 16. Hermes Agent 업데이트 및 대시보드 재시작 ──────────
+# ── 17. Hermes Agent 업데이트 및 대시보드 재시작 ──────────
 section "Hermes Agent"
 HERMES_CMD_PATH=$(command -v hermes 2>/dev/null || echo "")
 HERMES_DIR="$HOME/.hermes/hermes-agent"
@@ -707,7 +743,7 @@ else
     SKIPPED+=("Hermes")
 fi
 
-# ── 17. 텔레그램 보고 ─────────────────────────────────────
+# ── 18. 텔레그램 보고 ─────────────────────────────────────
 log ""
 log "=== 점검 완료 ==="
 HOSTNAME=$(hostname)
