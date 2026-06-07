@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.3.2] - 2026-06-07
+
+### Changed
+- **텔레그램 최신 상태 메시지에 버전 표시**: 버전 정보를 알 수 있는 항목은 Claude 와 동일한 형식으로 버전 번호 포함
+  - `npm: 11.16.0 최신` (기존: `npm: 최신`)
+  - `Hermes: e2cc24e3 최신` (기존: `Hermes: 최신`)
+  - pip는 PEP 668 스킵 환경에서 RESULTS 배열에 미포함되므로 변화 없음
+
+---
+
 ## [v3.3.1] - 2026-06-07
 
 ### Fixed

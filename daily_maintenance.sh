@@ -293,8 +293,9 @@ if command -v npm &>/dev/null; then
             UPDATED+=("npm 전역 ${npm_outdated}개")
         } || ERRORS+=("npm")
     else
+        npm_ver=$(npm --version 2>/dev/null || echo "")
         log "npm 전역 패키지 최신 상태"
-        RESULTS+=("npm: 최신")
+        RESULTS+=("npm: ${npm_ver:+$npm_ver }최신")
     fi
 else
     log "npm 미설치 — 건너뜀"
@@ -419,7 +420,8 @@ else
         UPDATED+=("pip ${pip_updated}개")
     elif ! $_pip_blocked_by_pep668 || $_pip_in_venv; then
         # 정상 환경일 때만 "최신" 보고. PEP 668 + venv-off 는 SKIPPED 가 위에서 처리됨.
-        RESULTS+=("pip: 최신")
+        _pip_ver=$(_pip --version 2>/dev/null | awk '{print $2}' || echo "")
+        RESULTS+=("pip: ${_pip_ver:+$_pip_ver }최신")
     fi
 fi
 unset _pip _pip_blocked_by_pep668 _pip_in_venv _install_one _upgrade_loop _has_target_pkgs _outdated_list
@@ -933,7 +935,7 @@ if [ -n "$HERMES_CMD_PATH" ] && [ -d "$HERMES_DIR/.git" ]; then
             fi
         else
             log "Hermes 최신 상태 (${HERMES_BEFORE:0:8})"
-            RESULTS+=("Hermes: 최신")
+            RESULTS+=("Hermes: ${HERMES_BEFORE:0:8} 최신")
         fi
     } || {
         log "Hermes 업데이트 실패"
