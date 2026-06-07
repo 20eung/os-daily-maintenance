@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v3.3.0] - 2026-06-08
+## [v3.3.1] - 2026-06-07
+
+### Fixed
+- **journald 사용량 파싱 버그**: `journalctl --disk-usage` 출력이 `38.5M` 형식(B 접미사 없음)으로 오는 경우 정규식 미매치로 "기존 사용량: ?" 로 표시되던 버그 수정. `grep -oP '[\d.]+ ?\w+(?= in)'` 패턴으로 교체하여 `38.5M` 정상 파싱
+
+---
+
+## [v3.3.0] - 2026-06-07
 
 ### Added
 - **snap 패키지 섹션 (섹션 1c, Linux 전용)**: `snap refresh --list` 로 업데이트 가능한 패키지 감지 후 `sudo snap refresh` 자동 실행 (oracle-cloud-agent 등 OCI 환경 snap 패키지 대응)

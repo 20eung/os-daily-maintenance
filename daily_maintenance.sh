@@ -868,7 +868,7 @@ else
     fi
     # journald vacuum (systemd 로그)
     if command -v journalctl &>/dev/null; then
-        j_before=$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+(\.[0-9]+)?[KMGT]?B' | head -1 || echo "?")
+        j_before=$(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+ ?\w+(?= in)' | head -1 || echo "?")
         if [ "$SUDO_AVAILABLE" = true ]; then
             sudo journalctl --vacuum-time="${LOG_RETENTION_DAYS}d" 2>>"$LOG_FILE" \
                 && log "journald vacuum 완료 (기존 사용량: ${j_before})"
