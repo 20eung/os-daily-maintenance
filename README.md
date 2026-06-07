@@ -34,11 +34,12 @@ macOS 및 Ubuntu 시스템과 다양한 개발 환경(Homebrew, APT, npm, pip, D
 **유지보수 & 모니터링:**
 - **🧹 자동 정리**: 30일 경과 로그 자동 삭제, Orphaned 프로세스 감지
 - **📢 실시간 보고**: 작업 결과를 한눈에 보기 쉬운 포맷으로 텔레그램 봇을 통해 즉시 전송
-- **🤖 Hermes Agent 연동 (Ubuntu 전용)**: git 커밋 해시 비교로 업데이트 감지 시 `hermes-dashboard` systemd 서비스 자동 재시작
+| **🤖 Hermes Agent 연동 (Linux 전용)**: git 커밋 해시 비교로 업데이트 감지 시 `MAINTENANCE_HERMES_UNITS` 로 지정한 `systemd --user` 서비스 자동 재시작 (OCI: `hermes-gateway.service` 기본 동작)
 - **🛡️ 범용성 및 견고함**:
   - 도구(brew, docker 등) 미설치 시 자동으로 건너뛰고 리포트에 표시
   - `.env` 기반의 완전한 독립적 환경 설정 지원 (Portable Config)
   - `sudo` 권한 부족 시 자동 안내 가이드(visudo) 제공
+  - 프로젝트 루트 통일: macOS / Linux 모두 **`~/Project`** (대문자) — OCI 측은 `mv ~/project ~/Project` 마이그레이션 후 사용
 
 ---
 
@@ -84,22 +85,41 @@ nano .env.darwin
 대부분의 설정은 **자동 감지**되므로 필수 설정은 거의 없습니다.
 
 **필수 설정 (선택사항):**
-- `USER_PROJECT_DIR`: Docker Compose 프로젝트 탐색 경로 (기본값: `/data`)
+- `USER_PROJECT_DIR`: Git/Docker 탐색 루트 (기본값: `$HOME/Project` — **macOS/Linux 통일, 대문자 P**)
 - `MAINTENANCE_BOT_KEY`: 텔레그램 봇 API 키 (알림 기능, 생략 가능)
 - `MAINTENANCE_CHAT_ID`: 텔레그램 채팅방 ID (알림 기능, 생략 가능)
 
 **자동 감지되는 설정 (설정 불필요):**
 - `MAINTENANCE_HOME`: 자동으로 현재 사용자의 `$HOME` 사용
 - `MAINTENANCE_PATH`: 시스템 기본 `$PATH` 사용
-- **pip 패키지**: 설치된 모든 패키지 자동 감지
+- **pip 패키지**: `PIP_TARGET_PACKAGES` 미설정 시 `pip list --outdated` 결과 자동 감지
 - **Docker Compose**: `USER_PROJECT_DIR` 아래의 모든 `docker-compose.yml` 자동 발견
-- **Git 저장소**: `USER_PROJECT_DIR` 아래의 모든 `.git` 자동 발견
+- **Git 저장소**: `USER_PROJECT_DIR` 아래의 모든 `.git` 자동 발견 (`node_modules` 자동 제외)
 
 **추가 설정 (옵션):**
 - `LOG_RETENTION_DAYS`: 로그 보관 기간 (일 단위, 기본값: `30`)
 - `CLEANUP_LOG_DIRS`: 30일이 지난 로그를 정리할 추가 디렉토리 (공백으로 구분)
 - `DISK_USAGE_THRESHOLD`: 디스크 경고 사용률 (기본값: `85`)
 - `CPU_TEMP_THRESHOLD`: CPU 경고 온도 (기본값: `80`)
+- `PIP_TARGET_PACKAGES`: pip 업데이트 화이트리스트 (공백 구분, 비우면 전체)
+- `MAINTENANCE_HERMES_UNITS` (Linux): Hermes 업데이트 시 재시작할 user unit 목록 (공백 구분, 기본값: `hermes-gateway.service hermes-dashboard.service`)
+
+---
+
+### 4️⃣ 프로젝트 디렉토리 통일 (OCI → macOS 호환)
+
+macOS 와 OCI Linux 의 프로젝트 경로를 **`~/Project` (대문자 P)** 로 통일합니다.
+
+```bash
+# OCI VM 에서 (필요한 경우)
+[ -d "$HOME/project" ] && mv "$HOME/project" "$HOME/Project"
+
+# .env 또는 .env.linux 확인 — USER_PROJECT_DIRS 의 첫 토큰이 ~/Project 인지
+grep USER_PROJECT_DIRS /home/ubuntu/project/os-daily-maintenance/.env
+#   USER_PROJECT_DIRS="/home/ubuntu/Project /data/projects"   ← 이렇게 보이면 OK
+```
+
+스크립트는 `USER_PROJECT_DIRS` 의 각 토큰이 실제 존재하는 디렉토리인지 검증하여, 존재하지 않는 경로는 자동으로 제거한 뒤 진행합니다 (silent false-positive 방지).
 
 ---
 
@@ -160,7 +180,7 @@ os-daily-maintenance/
 
 | # | 섹션 | OS |
 |---|------|----|
-| 1 | OS 패키지 업데이트 (Homebrew / APT) | macOS / Linux |
+| 1 | OS 패키지 업데이트 (Homebrew / APT + **snap**, Linux) | macOS / Linux |
 | 2 | cokacdir 업데이트 | 공통 |
 | 3 | Claude Code 업데이트 | 공통 |
 | 4 | bkit 플러그인 업데이트 | 공통 |
@@ -170,18 +190,39 @@ os-daily-maintenance/
 | 8 | Obsidian-Wiki 자동 동기화 | 공통 |
 | 9 | conda 업데이트 | macOS 전용 |
 | 10 | Docker 컨테이너 관리 (Watchtower 감지 후 자동 분기, 주 1회 pull + compose up -d) | 공통 |
-| 11 | 시스템 상태 확인 (디스크·메모리·온도) | 공통 |
+| 11 | 시스템 상태 확인 (디스크·메모리·**Swap**·온도) | 공통 |
 | 12 | 서비스 상태 확인 (systemd / launchctl) | 공통 |
 | 13 | 시스템 업데이트 확인 (apt / softwareupdate) | 공통 |
 | 14 | 파일시스템 무결성 확인 (주간·일요일) | 공통 |
 | 15 | Orphaned 프로세스 확인 | 공통 |
-| 16 | 로그 정리 | 공통 |
-| 17 | Hermes Agent 업데이트 및 대시보드 재시작 | Linux 전용 |
+| 16 | 로그 정리 (**journald vacuum** 포함) | 공통 |
+| 17 | Hermes Agent 업데이트 및 **서비스 재시작 (다중 user unit, `MAINTENANCE_HERMES_UNITS`)** | Linux 전용 |
 | 18 | 텔레그램 보고 | 공통 |
 
 ---
 
 ## 📜 버전 히스토리 (Changelog)
+
+### v3.3.0 (2026-06-08)
+- **feat — snap 섹션 추가 (Linux)**: `snap refresh --list` 감지 후 `sudo snap refresh` 자동 실행. OCI oracle-cloud-agent 등 snap 관리 패키지 대응
+- **feat — Swap 모니터링**: Linux 시스템 상태 확인에 Swap 사용률 추가. 50% 초과 시 경고
+- **feat — journald vacuum**: 로그 정리 섹션에 `journalctl --vacuum-time` 추가 — systemd journal 별도 정리
+- **feat — 소요시간 보고**: 텔레그램 메시지에 `⏱ 소요시간: N초` 추가
+- **fix — XDG_RUNTIME_DIR cron 버그**: Linger=yes 환경에서 `/run/user/$(id -u)` 자동 fallback — Hermes 서비스 재시작이 cron 에서 항상 스킵되던 버그 수정
+- **fix — apt upgrade interactive 행**: `DEBIAN_FRONTEND=noninteractive` 추가
+- **fix — 보안 업데이트 체크 타이밍**: `_APT_UPGRADABLE_LIST` 사전 캡처로 `apt upgrade` 후 0개 오탐 수정 + 중복 `apt list` 3회 → 1회
+
+### v3.2.0 (2026-06-07)
+- **chore — Project root 통일**: macOS / Linux 모두 `~/Project` (대문자 P). `USER_PROJECT_DIRS` 의 각 토큰을 실재 검증하여 silent false-positive 방지
+- **feat — Hermes 다중 unit 재시작**: `MAINTENANCE_HERMES_UNITS` 환경변수로 공백 구분 다중 unit 지원. OCI 의 `hermes-gateway.service` 도 자동 재시작 대상
+- **fix — Hermes stamp silent fail**: `~/.hermes/scripts/` 디렉토리 의존 제거, `~/.hermes/.hermes-last-commit` 로 이동 (macOS/Linux 공통)
+- **fix — systemd --user 세션 가드**: SSH / linger-off 환경에서 false error 제거
+- **fix — tune2fs sudo 누락**: fsck 섹션 권한 보강
+- **fix — pip PEP 668 호환**: `PIP_TARGET_PACKAGES` 화이트리스트 + `--user` 자동 fallback
+- **fix — find node_modules prune**: `-not -path` → `-prune` 으로 교체 (macOS find 호환)
+- **fix — df 파싱**: `tail -1` → `awk 'NR==2'` (BSD/GNU 흡수)
+- **fix — Obsidian-Wiki `cd` 잔재**: `git -C` 만 사용하도록 정리
+- **fix — conda clean sudo 가드**: macOS root 권한 필요 케이스 대응
 
 ### v3.1.0 (2026-05-31)
 - **fix — pip `--break-system-packages` 플래그 제거**: Ubuntu 22.04+ 시스템 Python 패키지 파손 위험 해소

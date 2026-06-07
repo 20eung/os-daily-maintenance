@@ -22,7 +22,7 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 
 ### 3. 개발 언어 및 라이브러리
 - **npm**: `npm update -g` 수행.
-- **pip3**: 설치된 모든 pip3 패키지를 `pip3 list --outdated` 로 감지하여 `pip3 install --upgrade` 순회 처리. `--break-system-packages` 플래그는 사용하지 않아 시스템 Python 보호.
+- **pip3**: `.env` 의 `PIP_TARGET_PACKAGES` 가 있으면 그것만 화이트리스트로, 없으면 `pip3 list --outdated` 결과를 사용. PEP 668(Homebrew/Ubuntu 23+) 환경에서는 `pip install --user --upgrade` 로 자동 fallback. `--break-system-packages` 플래그는 시스템 python 보호를 위해 자동 감지 후에만 사용.
 
 ### 4. Docker 및 이미지 관리
 - **Watchtower 감지**: `docker ps`에서 Watchtower 컨테이너가 실행 중이면 자동으로 SKIPPED 처리 (Watchtower가 이미지 업데이트 담당).
@@ -30,7 +30,8 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 - **정리**: `docker image prune -f` 수행.
 
 ### 5. Git 저장소 동기화 (핵심 로직)
-- `$USER_PROJECT_DIRS` (또는 `$USER_PROJECT_DIR`) 하위의 모든 `.git` 디렉토리를 깊이 3까지 동적으로 탐색합니다. (node_modules 제외)
+- macOS / Linux 모두 **`~/Project`** (대문자 P) 를 기본 프로젝트 루트로 사용. `.env` 의 `USER_PROJECT_DIRS` 가 공백 구분 다중 경로일 때, 실제로 존재하는 디렉토리만 통과시켜 silent false-positive 방지.
+- `$USER_PROJECT_DIRS` 하위의 모든 `.git` 디렉토리를 깊이 3까지 동적으로 탐색합니다. (`node_modules` 는 `-prune` 으로 정확히 제외)
 - 각 저장소에서 `fetch` 후 `ahead`/`behind` 카운트를 계산.
 - `behind`만 존재할 경우 자동 `pull` 수행. `ahead`가 있거나 `diverged` 상태면 경고 목록에 추가하여 수동 처리를 유도.
 
@@ -44,8 +45,9 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 ### 7. Hermes Agent 연동 (Linux 전용, 섹션 16)
 - `command -v hermes`로 hermes 바이너리 경로를 **동적** 탐색 (경로 하드코딩 금지).
 - `hermes` 미설치 시 `SKIPPED` 처리.
-- `~/.hermes/hermes-agent/` 디렉토리의 git 커밋 해시를 `.hermes-last-commit` 파일과 비교하여 변경 감지.
-- 업데이트 감지 시 `systemctl --user restart hermes-dashboard` 실행 후 `.hermes-last-commit` 갱신.
+- `~/.hermes/hermes-agent/` 디렉토리의 git 커밋 해시를 `~/.hermes/.hermes-last-commit` 파일과 비교하여 변경 감지.
+- 업데이트 감지 시 `.env` 의 `MAINTENANCE_HERMES_UNITS` (공백 구분) 에 등록된 `systemctl --user` 서비스들을 순차 재시작. 기본값은 `hermes-gateway.service hermes-dashboard.service` (OCI 에서는 gateway 가, 데스크탑에서는 dashboard 가 실제 운영 중인 unit).
+- `XDG_RUNTIME_DIR` 또는 `systemctl --user status` 가 실패하면 (SSH / linger-off 환경) 재시작 단계를 SKIPPED 처리하여 false error 방지.
 - `systemctl --user`가 사용 불가한 환경에서는 SKIPPED 처리.
 
 ## 🚀 릴리즈 관리 규칙 (Release Rules)
@@ -56,6 +58,7 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 3. **태그 및 릴리즈**: `gh release create`를 사용하여 버전 관리와 릴리즈 노트를 작성합니다.
 
 ## 환경 설정
-- **기본 환경**: macOS M1 Pro & Ubuntu Linux, bash, UTF-8 모드
+- **기본 환경**: macOS (M1/Intel) & Ubuntu Linux (OCI), bash, UTF-8 모드
+- **프로젝트 루트 (macOS/Linux 통일)**: `$HOME/Project` (대문자 P). OCI VM 은 `mv ~/project ~/Project` 로 마이그레이션.
 - **경로**: 사용자의 홈 디렉토리 기준 (`.env` 설정을 따름)
 - **로깅**: 상세 실행 과정은 날짜별 로그 파일(`logs/maintenance_linux_*.log` 또는 `logs/maintenance_darwin_*.log`)에 기록.

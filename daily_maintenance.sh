@@ -39,7 +39,15 @@ fi
 # 변수 설정 (기본값 설정 포함)
 MAINTENANCE_BOT_KEY="${MAINTENANCE_BOT_KEY:-}"
 MAINTENANCE_CHAT_ID="${MAINTENANCE_CHAT_ID:-}"
+# 통일된 프로젝트 루트 (macOS·OCI 모두 ~/Project 사용). 미설정 시 자동으로 안전 fallback.
 USER_PROJECT_DIRS="${USER_PROJECT_DIRS:-${USER_PROJECT_DIR:-$HOME/Project}}"
+# 첫 토큰이 실제로 존재하는 디렉토리가 되도록 보정 (공백 구분 다중 경로 지원)
+_cleaned=""
+for _d in $USER_PROJECT_DIRS; do
+    if [ -d "$_d" ]; then _cleaned="${_cleaned:+$_cleaned }$_d"; fi
+done
+[ -n "$_cleaned" ] && USER_PROJECT_DIRS="$_cleaned"
+unset _d _cleaned
 LOG_STAGING_DIR="${LOG_STAGING_DIR:-$SCRIPT_DIR/logs}"
 LOG_FILE="$LOG_STAGING_DIR/maintenance_${OS_TYPE}_$(date +%Y%m%d).log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -100,6 +108,7 @@ send_msg() {
 
 {
 log "=== 시스템 일일 점검 시작 ($OS_TYPE): $TIMESTAMP ==="
+SCRIPT_START_TIME=$(date +%s)
 
 RESULTS=()
 UPDATED=()
@@ -160,10 +169,12 @@ else
     section "OS 패키지 (apt)"
     if command -v apt &>/dev/null; then
         sudo apt update -qq 2>>"$LOG_FILE"
-        UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -v "Listing..." | wc -l)
+        # apt upgrade 전에 목록 캡처 (섹션 13 보안 업데이트 체크에서 재사용)
+        _APT_UPGRADABLE_LIST=$(apt list --upgradable 2>/dev/null | grep -v "Listing...")
+        UPGRADABLE=$(echo "$_APT_UPGRADABLE_LIST" | wc -l)
         log "업그레이드 가능: ${UPGRADABLE}개"
         if [ "$UPGRADABLE" -gt 0 ]; then
-            sudo apt upgrade -y -qq 2>>"$LOG_FILE" && {
+            sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y -qq 2>>"$LOG_FILE" && {
                 log "apt 업그레이드 완료 (${UPGRADABLE}개)"
                 UPDATED+=("OS(apt) ${UPGRADABLE}개")
             } || {
@@ -179,6 +190,28 @@ else
     else
         log "apt 미설치 (또는 권한 없음) — 건너뜀"
         SKIPPED+=("APT/OS패키지")
+    fi
+
+    # ── 1c. snap 패키지 (Linux) ───────────────────────────
+    section "snap 패키지"
+    if command -v snap &>/dev/null; then
+        snap_outdated=$(snap refresh --list 2>/dev/null | tail -n +2 | grep -v '^$' | wc -l | tr -d ' ')
+        log "snap 업그레이드 가능: ${snap_outdated}개"
+        if [ "$snap_outdated" -gt 0 ]; then
+            sudo snap refresh 2>>"$LOG_FILE" && {
+                log "snap 업데이트 완료 (${snap_outdated}개)"
+                UPDATED+=("snap ${snap_outdated}개")
+            } || {
+                log "snap 업데이트 실패"
+                ERRORS+=("snap 업데이트 실패")
+            }
+        else
+            log "snap 최신 상태"
+            RESULTS+=("snap: 최신")
+        fi
+    else
+        log "snap 미설치 — 건너뜀"
+        SKIPPED+=("snap")
     fi
 fi
 
@@ -269,53 +302,136 @@ else
 fi
 
 # ── 6. pip 설치된 패키지 업데이트 ────────────────────────
+# 정책: .env 의 PIP_TARGET_PACKAGES 가 있으면 그것만 화이트리스트로,
+#        없으면 pip3 list --outdated 결과를 모두 갱신. 시스템 python(PEP 668) 보호를 위해
+#        user-site(--user) 또는 venv 가 아니면 pipx/python -m pip 으로 격리 시도.
 section "pip 설치된 패키지"
 pip_updated=0
-if command -v pip3 &>/dev/null; then
-    BREAK_FLAG=""
-    PIP_LIST_CMD="pip3 list --outdated"
-    if $PIP_LIST_CMD >/dev/null 2>&1; then
-        while IFS= read -r line; do
-            pkg=$(echo "$line" | awk '{print $1}')
-            if [ -n "$pkg" ]; then
-                pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
-                    log "$pkg 업그레이드 완료"
-                    pip_updated=$((pip_updated+1))
-                } || log "$pkg 업그레이드 실패"
-            fi
-        done < <($PIP_LIST_CMD 2>/dev/null | tail -n +3 | grep -v "^pydantic-core" | grep -v "^Package")
-        [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개") || RESULTS+=("pip: 최신")
+pip_skipped_pep668=0
+_has_target_pkgs=false
+[ -n "${PIP_TARGET_PACKAGES:-}" ] && _has_target_pkgs=true
+
+# pip 실행 wrapper: 가능하면 'python3 -m pip' 사용 (PATH 의 pip3 가 깨졌을 때 대비)
+_pip() {
+    if command -v pip3 &>/dev/null; then
+        pip3 "$@"
+    elif command -v python3 &>/dev/null; then
+        python3 -m pip "$@"
     else
-        if sudo pip3 list --outdated >/dev/null 2>&1; then
-            while IFS= read -r line; do
-                pkg=$(echo "$line" | awk '{print $1}')
-                if [ -n "$pkg" ]; then
-                    sudo pip3 install --upgrade "$pkg" -q 2>>"$LOG_FILE" && {
-                        log "$pkg 업그레이드 완료 (sudo)"
-                        pip_updated=$((pip_updated+1))
-                    } || log "$pkg 업그레이드 실패 (sudo)"
-                fi
-            done < <(sudo pip3 list --outdated 2>/dev/null | tail -n +3)
-            [ "$pip_updated" -gt 0 ] && UPDATED+=("pip ${pip_updated}개 (sudo)") || RESULTS+=("pip: 최신")
+        return 127
+    fi
+}
+
+# PEP 668 / user-site 가용성 사전 체크
+# Ubuntu 23+, Homebrew python, 등 externally-managed-environment 환경에서는
+# --upgrade, --user 둘 다 막혀있다. 이런 환경에서는 venv 가 활성화돼있을 때만 시도.
+# 주의: set -o pipefail 환경에서 `cmd | grep -q` 는 grep 매치 시(grep exit 0) OK 이지만,
+#        grep 가 미매치면 grep exit 1 → pipefail 로 false. 변수로 받아 직접 검사.
+_pip_blocked_by_pep668=false
+_pip_dryrun_out=$(_pip install --dry-run --quiet requests 2>&1 || true)
+if _pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+    if echo "$_pip_dryrun_out" | grep -q "externally-managed-environment"; then
+        _pip_dryrun_user_out=$(_pip install --user --dry-run --quiet requests 2>&1 || true)
+        if ! echo "$_pip_dryrun_user_out" | grep -q "externally-managed-environment"; then
+            : # --user 는 동작 — 일반 모드
         else
-            log "pip list 명령 실패 (pip 손상 또는 권한 문제) — 건너뜀"
-            ERRORS+=("pip: 패키지 목록 조회 실패")
+            _pip_blocked_by_pep668=true
         fi
     fi
-else
-    log "pip3 미설치 — 건너뜀"
-    SKIPPED+=("pip3")
 fi
+# venv 활성화 여부 (PEP 668 환경이라도 venv 안이면 OK)
+_pip_in_venv=false
+[ -n "${VIRTUAL_ENV:-}" ] && _pip_in_venv=true
+unset _pip_dryrun_out _pip_dryrun_user_out
+
+_install_one() {
+    # $1: pkg, $2: scope (user|break|normal)
+    local pkg="$1" scope="${2:-normal}" out
+    case "$scope" in
+        user)
+            out=$(_pip install --user --upgrade "$pkg" -q 2>&1) && return 0
+            ;;
+        break)
+            out=$(_pip install --break-system-packages --upgrade "$pkg" -q 2>&1) && return 0
+            ;;
+        *)
+            out=$(_pip install --upgrade "$pkg" -q 2>&1) && return 0
+            ;;
+    esac
+    if echo "$out" | grep -q "externally-managed-environment"; then
+        return 2   # PEP 668 — caller 가 user 로 재시도
+    fi
+    return 1
+}
+
+_upgrade_loop() {
+    # stdin: pkg 목록 (한 줄에 하나), $1: scope
+    local scope="$1" pkg
+    while IFS= read -r pkg; do
+        pkg=$(echo "$pkg" | awk '{print $1}')
+        [ -z "$pkg" ] && continue
+        [ "$pkg" = "Package" ] && continue
+        [ "$pkg" = "pydantic-core" ] && continue  # pip 호환성 보호
+        if _install_one "$pkg" "$scope"; then
+            log "  ✓ $pkg 업그레이드 완료"
+            pip_updated=$((pip_updated+1))
+        elif [ $? -eq 2 ] && [ "$scope" != "user" ]; then
+            if _install_one "$pkg" "user"; then
+                log "  ✓ $pkg 업그레이드 완료 (--user)"
+                pip_updated=$((pip_updated+1))
+            else
+                log "  ✗ $pkg 업그레이드 실패 (--user 도 실패)"
+            fi
+        else
+            log "  ✗ $pkg 업그레이드 실패"
+        fi
+    done
+}
+
+if ! command -v pip3 &>/dev/null && ! command -v python3 &>/dev/null; then
+    log "pip3/python3 미설치 — 건너뜀"
+    SKIPPED+=("pip3")
+else
+    # PEP 668 으로 시스템이 잠겨있고 venv 도 비활성화된 환경 → 안전하게 SKIPPED
+    if $_pip_blocked_by_pep668 && ! $_pip_in_venv; then
+        log "pip 섹션 건너뜀: PEP 668 (externally-managed) 환경 + venv 미활성."
+        log "  시스템 python 보호를 위해 자동 업그레이드를 시도하지 않습니다."
+        log "  활성화된 venv 가 있거나 .env 의 PIP_TARGET_PACKAGES 가 비어있으면 시도합니다."
+        SKIPPED+=("pip (PEP 668)")
+    else
+        if $_has_target_pkgs; then
+            # 화이트리스트 모드: PIP_TARGET_PACKAGES 를 그대로 사용
+            log "PIP_TARGET_PACKAGES 사용: ${PIP_TARGET_PACKAGES}"
+            _scope=normal
+            if $_pip_blocked_by_pep668; then _scope=user; fi   # venv 안이지만 외부 lock 인 경우 user 우선
+            echo "$PIP_TARGET_PACKAGES" | tr ' ' '\n' | _upgrade_loop "$_scope"
+        else
+            # 자동 모드: pip list --outdated 결과 전체
+            _outdated_list=$(_pip list --outdated 2>/dev/null | tail -n +3)
+            if [ -n "$_outdated_list" ]; then
+                _scope=normal
+                if $_pip_blocked_by_pep668; then _scope=user; fi
+                echo "$_outdated_list" | _upgrade_loop "$_scope"
+            fi
+        fi
+    fi
+    if [ "$pip_updated" -gt 0 ]; then
+        UPDATED+=("pip ${pip_updated}개")
+    elif ! $_pip_blocked_by_pep668 || $_pip_in_venv; then
+        # 정상 환경일 때만 "최신" 보고. PEP 668 + venv-off 는 SKIPPED 가 위에서 처리됨.
+        RESULTS+=("pip: 최신")
+    fi
+fi
+unset _pip _pip_blocked_by_pep668 _pip_in_venv _install_one _upgrade_loop _has_target_pkgs _outdated_list
 
 # ── 7. GitHub 저장소 동기화 (pull 자동, push 알림) ──────
 section "GitHub 저장소"
-if command -v git &>/dev/null; then
+if command -v git &>/dev/null && [ -n "$USER_PROJECT_DIRS" ]; then
     git_pulled=()
     git_pull_failed=()
     git_ahead=()
     git_noremote=()
     git_repo_count=0
-    read -ra GIT_SEARCH_DIRS <<< "$USER_PROJECT_DIRS"
     while IFS= read -r repo; do
         git_repo_count=$((git_repo_count+1))
         repo_name=$(basename "$repo")
@@ -354,7 +470,7 @@ if command -v git &>/dev/null; then
         else
             log "최신: $repo_name"
         fi
-    done < <(find "${GIT_SEARCH_DIRS[@]}" -maxdepth 3 -name ".git" -type d -not -path "*/node_modules/*" 2>/dev/null | sed 's|/.git||' | sort -u)
+    done < <(find ${USER_PROJECT_DIRS:-} -maxdepth 3 -name "node_modules" -prune -o -name ".git" -type d -print 2>/dev/null | sed 's|/\.git$||' | sort -u)
 
     [ ${#git_pulled[@]} -gt 0 ]      && UPDATED+=("Git pull: ${#git_pulled[@]}개 (${git_pulled[*]})")
     [ ${#git_pull_failed[@]} -gt 0 ] && { for r in "${git_pull_failed[@]}"; do ERRORS+=("Git: $r"); done; }
@@ -367,15 +483,20 @@ if command -v git &>/dev/null; then
         RESULTS+=("GitHub: 모두 최신")
     fi
 else
-    log "git 미설치 — 건너뜀"
-    SKIPPED+=("Git")
+    if [ -z "$USER_PROJECT_DIRS" ]; then
+        log "USER_PROJECT_DIRS 미설정 — 건너뜀"
+        SKIPPED+=("GitHub (USER_PROJECT_DIRS 미설정)")
+    else
+        log "git 미설치 — 건너뜀"
+        SKIPPED+=("Git")
+    fi
 fi
 
 # ── 8. Obsidian-Wiki 자동 동기화 ─────────────────────────
 section "Obsidian-Wiki 동기화"
 WIKI_DIR="${OBSIDIAN_WIKI_DIR:-$HOME/Project/Obsidian-Wiki}"
 if [ -d "$WIKI_DIR/.git" ]; then
-    cd "$WIKI_DIR" || true
+    # cd 없이 git -C 만 사용 (현재 작업 디렉토리 보존)
     if ! git -C "$WIKI_DIR" diff --quiet 2>/dev/null || \
        ! git -C "$WIKI_DIR" diff --cached --quiet 2>/dev/null || \
        [ -n "$(git -C "$WIKI_DIR" ls-files --others --exclude-standard 2>/dev/null)" ]; then
@@ -420,7 +541,15 @@ if [ "$OS_TYPE" = "darwin" ]; then
             log "conda 업데이트 실패"
             ERRORS+=("conda")
         }
-        conda clean --all -y -q 2>>"$LOG_FILE"
+        # conda clean --all 은 root 권한이 필요할 수 있음 (macOS) → SUDO 가드
+        if [ "$SUDO_AVAILABLE" = true ]; then
+            sudo -n conda clean --all -y -q 2>>"$LOG_FILE" \
+                || conda clean --all -y -q 2>>"$LOG_FILE" \
+                || log "conda clean 권한 부족 (root/admin 필요)"
+        else
+            conda clean --all -y -q 2>>"$LOG_FILE" \
+                || log "conda clean 실패 (root 권한 필요)"
+        fi
     else
         log "conda 미설치 — 건너뜀"
         SKIPPED+=("conda")
@@ -480,9 +609,9 @@ fi
 
 # ── 11. 시스템 상태 확인 ─────────────────────────────────
 section "시스템 상태"
-DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | tr -d '%' | tr -d ' ')
-DISK_AVAIL_K=$(df / | tail -1 | awk '{print $4}')
-DISK_AVAIL_HUMAN=$(numfmt --to=iec --suffix=B "$((DISK_AVAIL_K * 1024))" 2>/dev/null || echo "${DISK_AVAIL_K}K")
+DISK_USAGE=$(df / 2>/dev/null | awk 'NR==2 {gsub("%",""); print $5}' | tr -d ' ')
+DISK_AVAIL_K=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
+DISK_AVAIL_HUMAN=$(numfmt --to=iec --suffix=B "$((DISK_AVAIL_K * 1024))" 2>/dev/null || echo "${DISK_AVAIL_K:-0}K")
 log "루트 파티션 사용률: ${DISK_USAGE}% (잔여: ${DISK_AVAIL_HUMAN})"
 [ "$DISK_USAGE" -gt "$DISK_USAGE_THRESHOLD" ] && ERRORS+=("디스크 ${DISK_USAGE}% (잔여 ${DISK_AVAIL_HUMAN})")
 
@@ -505,6 +634,16 @@ else
     MEM_USAGE=$(free | grep Mem | awk '{printf("%.0f", ($3/$2)*100)}')
     log "메모리 사용률: ${MEM_USAGE}%"
     [ "$MEM_USAGE" -gt "$MEMORY_USAGE_THRESHOLD" ] && ERRORS+=("메모리 ${MEM_USAGE}% 경고")
+fi
+
+# Swap 사용률 (Linux: swap 있을 때만)
+if [ "$OS_TYPE" != "darwin" ]; then
+    SWAP_TOTAL=$(free | awk '/Swap:/{print $2}')
+    if [ "${SWAP_TOTAL:-0}" -gt 0 ]; then
+        SWAP_USAGE=$(free | awk '/Swap:/{printf("%.0f", ($3/$2)*100)}')
+        log "Swap 사용률: ${SWAP_USAGE}%"
+        [ "$SWAP_USAGE" -gt 50 ] && ERRORS+=("Swap ${SWAP_USAGE}% 경고 (메모리 압박 가능성)")
+    fi
 fi
 
 # CPU 온도 (OS별)
@@ -604,7 +743,9 @@ ${SW_NAMES}")
 else
     section "보안 업데이트"
     if command -v apt &>/dev/null; then
-        security_updates=$(apt list --upgradable 2>/dev/null | grep -i security | wc -l)
+        # 섹션 1에서 캡처한 목록 재사용 (apt upgrade 이전 스냅샷)
+        _apt_list="${_APT_UPGRADABLE_LIST:-}"
+        security_updates=$(echo "$_apt_list" | grep -i security | wc -l)
         if [ "$security_updates" -gt 0 ]; then
             log "보안 업데이트: ${security_updates}개 대기중"
             ERRORS+=("보안 업데이트 ${security_updates}개 필요")
@@ -612,8 +753,8 @@ else
             log "보안 업데이트: 최신"
             RESULTS+=("보안: 최신")
         fi
-        all_updates=$(apt list --upgradable 2>/dev/null | grep -v '^Listing...' | grep -v '^-' | cut -d'/' -f1 | head -10)
-        all_count=$(apt list --upgradable 2>/dev/null | grep -v '^Listing...' | grep -v '^-' | wc -l | tr -d ' ')
+        all_count=$(echo "$_apt_list" | grep -v '^-' | grep -v '^$' | wc -l | tr -d ' ')
+        all_updates=$(echo "$_apt_list" | grep -v '^-' | grep -v '^$' | cut -d'/' -f1 | head -10)
         if [ "$all_count" -gt 0 ]; then
             all_names=$(echo "$all_updates" | paste -sd'\n' -)
             [ "$all_count" -gt 10 ] && all_names="${all_names}
@@ -621,6 +762,7 @@ else
             ERRORS+=("OS 업데이트 ${all_count}개 대기:
 ${all_names}")
         fi
+        unset _apt_list
     fi
 
     # Linux: 커널 업데이트 재부팅 필요 여부
@@ -653,22 +795,23 @@ if [ "$DOW" -eq 0 ]; then
             ERRORS+=("파일시스템 점검 오류: ${DISK_ERR_SUMMARY}→ 재시동 필요")
         fi
     else
-        if command -v fsck &>/dev/null && [ "$SUDO_AVAILABLE" = true ]; then
-            # Ubuntu 20.04+: /forcefsck 미지원 → tune2fs 로 다음 재부팅 시 fsck 예약
+        # OCI/Ubuntu 환경은 sudo NOPASSWD 가 셋업되어 있다는 전제.
+        # tune2fs 는 root 만 실행 가능하므로 SUDO 가드 안에서 sudo 사용.
+        if command -v tune2fs &>/dev/null && [ "$SUDO_AVAILABLE" = true ]; then
             ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null | head -1)
             if [ -n "$ROOT_DEV" ]; then
-                sudo tune2fs -C 1 "$ROOT_DEV" 2>/dev/null && {
+                if sudo tune2fs -C 1 "$ROOT_DEV" 2>>"$LOG_FILE"; then
                     log "주간 fsck 스케줄됨: $ROOT_DEV (다음 재부팅 시 실행)"
-                } || {
+                else
                     log "tune2fs 실패 (ext4 외 파일시스템이거나 권한 문제) — 건너뜀"
                     SKIPPED+=("fsck (tune2fs 실패)")
-                }
+                fi
             else
                 log "루트 디바이스 감지 실패 — fsck 건너뜀"
                 SKIPPED+=("fsck")
             fi
         else
-            log "fsck 사용 불가 (미설치 또는 sudo 없음) — 건너뜀"
+            log "fsck 사용 불가 (tune2fs 미설치 또는 sudo 없음) — 건너뜀"
             SKIPPED+=("fsck")
         fi
     fi
@@ -723,14 +866,31 @@ else
         find "/var/log" -name "*.log" -mtime +"$LOG_RETENTION_DAYS" -delete 2>/dev/null \
             || log "/var/log 정리 권한 부족 (sudo 설정 필요)"
     fi
+    # journald vacuum (systemd 로그)
+    if command -v journalctl &>/dev/null; then
+        j_before=$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+(\.[0-9]+)?[KMGT]?B' | head -1 || echo "?")
+        if [ "$SUDO_AVAILABLE" = true ]; then
+            sudo journalctl --vacuum-time="${LOG_RETENTION_DAYS}d" 2>>"$LOG_FILE" \
+                && log "journald vacuum 완료 (기존 사용량: ${j_before})"
+        else
+            journalctl --user --vacuum-time="${LOG_RETENTION_DAYS}d" 2>>"$LOG_FILE" \
+                && log "journald user-session vacuum 완료 (기존 사용량: ${j_before})"
+        fi
+    fi
 fi
 log "시스템 로그 정리 완료"
 
-# ── 17. Hermes Agent 업데이트 및 대시보드 재시작 ──────────
+# ── 17. Hermes Agent 업데이트 및 서비스 재시작 ──────────
 section "Hermes Agent"
 HERMES_CMD_PATH=$(command -v hermes 2>/dev/null || echo "")
 HERMES_DIR="$HOME/.hermes/hermes-agent"
-HERMES_STAMP="$HOME/.hermes/scripts/.hermes-last-commit"
+# stamp 파일을 $HOME/.hermes/ 바로 아래에 둠 (scripts/ 디렉토리 의존 제거 + macOS/Linux 공통)
+HERMES_STAMP_DIR="$HOME/.hermes"
+HERMES_STAMP="$HERMES_STAMP_DIR/.hermes-last-commit"
+# 재시작할 user unit 들. 공백 구분. .env 에서 MAINTENANCE_HERMES_UNITS 로 덮어쓸 수 있음.
+HERMES_UNITS_DEFAULT="hermes-gateway.service hermes-dashboard.service"
+HERMES_UNITS="${MAINTENANCE_HERMES_UNITS:-$HERMES_UNITS_DEFAULT}"
+
 if [ -n "$HERMES_CMD_PATH" ] && [ -d "$HERMES_DIR/.git" ]; then
     HERMES_BEFORE=$(git -C "$HERMES_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
     log "Hermes 현재 커밋: $HERMES_BEFORE"
@@ -739,20 +899,38 @@ if [ -n "$HERMES_CMD_PATH" ] && [ -d "$HERMES_DIR/.git" ]; then
         if [ "$HERMES_BEFORE" != "$HERMES_AFTER" ]; then
             log "Hermes 업데이트: ${HERMES_BEFORE:0:8} → ${HERMES_AFTER:0:8}"
             UPDATED+=("Hermes Agent ${HERMES_BEFORE:0:8}→${HERMES_AFTER:0:8}")
-            # 대시보드 서비스 재시작 (Linux 전용: systemd --user)
+            # stamp 디렉토리 보장 (없으면 silent fail)
+            mkdir -p "$HERMES_STAMP_DIR" 2>/dev/null
+            echo "$HERMES_AFTER" > "$HERMES_STAMP" 2>/dev/null \
+                || log "stamp 파일 쓰기 실패: $HERMES_STAMP"
+
+            # user unit 재시작 (Linux 전용). 단, systemd --user 세션이 살아있을 때만.
             if [ "$OS_TYPE" = "linux" ]; then
-                if systemctl --user is-active --quiet hermes-dashboard.service 2>/dev/null; then
-                    systemctl --user restart hermes-dashboard.service 2>>"$LOG_FILE" && {
-                        log "Hermes Dashboard 재시작 완료"
-                    } || {
-                        log "Hermes Dashboard 재시작 실패"
-                        ERRORS+=("Hermes Dashboard 재시작 실패")
-                    }
+                # cron 환경에서는 XDG_RUNTIME_DIR 이 미설정 → linger 유저는 /run/user/UID 가 실제 존재.
+                XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+                export XDG_RUNTIME_DIR
+                if [ -d "$XDG_RUNTIME_DIR" ] && systemctl --user status >/dev/null 2>&1; then
+                    restarted_units=()
+                    for unit in $HERMES_UNITS; do
+                        if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+                            if systemctl --user restart "$unit" 2>>"$LOG_FILE"; then
+                                log "  ✓ 재시작 완료: $unit"
+                                restarted_units+=("$unit")
+                            else
+                                log "  ✗ 재시작 실패: $unit"
+                                ERRORS+=("Hermes ${unit} 재시작 실패")
+                            fi
+                        else
+                            log "  · $unit 실행 중이 아님 — 재시작 건너뜀"
+                        fi
+                    done
+                    if [ ${#restarted_units[@]} -gt 0 ]; then
+                        RESULTS+=("Hermes 재시작: ${restarted_units[*]}")
+                    fi
                 else
-                    log "Hermes Dashboard 서비스가 실행 중이 아님 — 재시작 건너뜀"
+                    log "systemd --user 세션 없음 (linger 비활성 또는 SSH) — 서비스 재시작 건너뜀"
                 fi
             fi
-            echo "$HERMES_AFTER" > "$HERMES_STAMP"
         else
             log "Hermes 최신 상태 (${HERMES_BEFORE:0:8})"
             RESULTS+=("Hermes: 최신")
@@ -794,6 +972,10 @@ if [ ${#SKIPPED[@]} -gt 0 ]; then
 fi
 
 MSG+="${NL}━━━━━━━━━━━━━━━${NL}💾 디스크: ${DISK_USAGE}% 사용중"
+
+SCRIPT_END_TIME=$(date +%s)
+ELAPSED=$((SCRIPT_END_TIME - SCRIPT_START_TIME))
+MSG+="${NL}⏱ 소요시간: ${ELAPSED}초"
 
 send_msg "$MSG"
 log "텔레그램 보고 완료"
