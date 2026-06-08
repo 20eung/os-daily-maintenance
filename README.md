@@ -21,6 +21,7 @@ macOS 및 Ubuntu 시스템과 다양한 개발 환경(Homebrew, APT, npm, pip, D
   - CPU/디스크 온도 감지 (lm-sensors, smartctl)
   - systemd 서비스 상태 확인 및 실패 서비스 감지
   - 네트워크 연결 상태 확인
+- **🔐 Tailscale VPN 상태 점검**: `tailscale update` 시도 + `BackendState` / peer 수 / self IP 확인. `NeedsLogin`·`Stopped`·데몬 미실행 시 즉시 알림
 - **🔄 커널 & 파일시스템 관리**:
   - 커널 업데이트 상태 및 재부팅 필요 여부 감지
   - 주간 파일시스템 무결성 검사(fsck) 스케줄
@@ -197,7 +198,8 @@ os-daily-maintenance/
 | 15 | Orphaned 프로세스 확인 | 공통 |
 | 16 | 로그 정리 (**journald vacuum** 포함) | 공통 |
 | 17 | Hermes Agent 업데이트 및 **서비스 재시작 (다중 user unit, `MAINTENANCE_HERMES_UNITS`)** | Linux 전용 |
-| 18 | 텔레그램 보고 | 공통 |
+| 18 | **Tailscale 업데이트 및 연결 상태 확인 (peers, BackendState)** | 공통 |
+| 19 | 텔레그램 보고 | 공통 |
 
 ---
 

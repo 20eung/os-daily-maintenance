@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.4.0] - 2026-06-08
+
+### Added
+- **Tailscale 섹션 (섹션 18)**: VPN mesh 데몬의 일일 점검 추가.
+  - `timeout 30 tailscale update --yes` 로 cron 환경에서 sudo 프롬프트 행(hang) 방지. 패키지 매니저 관리 인스톨(apt/brew)은 `managed by package manager` 메시지로 자동 거부 — 섹션 1에서 이미 처리되었음을 안내.
+  - `tailscale status --json` 으로 `BackendState` / peer 수 / self IP 파싱. `Running` / `NeedsLogin` / `NoState` / `Stopped` / 비정상 상태를 분기 처리하여 `RESULTS` 또는 `ERRORS` 에 보고.
+  - 비설치 시 `SKIPPED` 추가, 데몬 미실행 시 `ERRORS` 에 추가.
+
+### Notes
+- README "실행 섹션" 표 갱신: 18 → Tailscale, 텔레그램 보고는 19 로 이동.
+- `tailscale update` 가 sudo 가 필요한 환경에서는 `Tailscale: 1.X.Y (sudo 필요)` 로 보고되며, 패키지 매니저가 처리한 동일 버전이 섹션 1에 함께 보고됨. 완전 자동화를 원하면 `visudo` 에 `NOPASSWD: /usr/bin/tailscale` 추가.
+
+---
+
 ## [v3.3.2] - 2026-06-07
 
 ### Changed

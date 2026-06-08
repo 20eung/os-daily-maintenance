@@ -50,6 +50,16 @@ OS 분기는 스크립트 내부에서 `$(uname -s)` 결과를 기준으로 처�
 - `XDG_RUNTIME_DIR` 또는 `systemctl --user status` 가 실패하면 (SSH / linger-off 환경) 재시작 단계를 SKIPPED 처리하여 false error 방지.
 - `systemctl --user`가 사용 불가한 환경에서는 SKIPPED 처리.
 
+### 8. Tailscale VPN 점검 (섹션 18, 공통)
+- `command -v tailscale`로 바이너리 존재 확인. 미설치 시 `SKIPPED` 처리.
+- `timeout 30 tailscale update --yes` 로 비 대화형 업데이트 시도 (cron 환경 sudo 행 방지). 패키지 매니저(apt/brew) 관리 인스톨은 자체 거부 메시지를 출력하므로 "pkg-mgr" 상태로 `RESULTS` 보고.
+- `tailscale status --json` 의 `BackendState` 값에 따라 분기:
+  - `Running` → peer 수 + self IP 와 함께 `RESULTS` 보고
+  - `NeedsLogin` / `NoState` / `Stopped` → `sudo tailscale up` 안내를 `ERRORS` 에 추가
+  - 그 외 비정상 상태 → `ERRORS` 에 추가
+- `tailscaled` 데몬 미실행 시 `ERRORS` 에 추가.
+- `tailscale update` 가 sudo 권한 부족으로 실패해도 시스템에 해를 주지 않으며, 섹션 1의 apt/brew 업데이트로 동일 패키지가 처리됨.
+
 ## 🚀 릴리즈 관리 규칙 (Release Rules)
 1. **보안 확인**: `.env` 등 민감 파일이 `.gitignore`에 포함되었는지 확인 후 `push`합니다.
 2. **About 섹션 자동 업데이트**: 릴리즈 시 `gh repo edit`을 통해 다음 정보를 강제 혹은 검토 업데이트합니다.

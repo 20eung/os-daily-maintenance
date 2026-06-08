@@ -946,7 +946,67 @@ else
     SKIPPED+=("Hermes")
 fi
 
-# ── 18. 텔레그램 보고 ─────────────────────────────────────
+# ── 18. Tailscale 업데이트 및 상태 확인 ───────────────────
+section "Tailscale"
+if command -v tailscale &>/dev/null; then
+    TS_BEFORE=$(tailscale version 2>/dev/null | head -1 | awk '{print $1}')
+    log "현재 버전: ${TS_BEFORE:-unknown}"
+
+    # cron 환경에서 sudo 프롬프트로 멈추지 않도록 timeout 가드.
+    # 패키지 매니저로 설치된 경우 tailscale update 가 자동 거부
+    # ("managed by package manager") → 섹션 1 (apt/brew) 에서 이미 처리되었음을 안내.
+    UPDATE_OUT=$(timeout 30 tailscale update --yes 2>&1 || true)
+    echo "$UPDATE_OUT" >> "$LOG_FILE"
+
+    TS_AFTER=$(tailscale version 2>/dev/null | head -1 | awk '{print $1}')
+    if [ -n "$TS_AFTER" ] && [ -n "$TS_BEFORE" ] && [ "$TS_BEFORE" != "$TS_AFTER" ]; then
+        log "Tailscale 업데이트: ${TS_BEFORE} → ${TS_AFTER}"
+        UPDATED+=("Tailscale ${TS_BEFORE}→${TS_AFTER}")
+    elif echo "$UPDATE_OUT" | grep -qi "managed by.*package manager\|use the system package manager"; then
+        log "Tailscale 은 패키지 매니저 관리 — 섹션 1 에서 처리됨"
+        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} (pkg-mgr)")
+    elif echo "$UPDATE_OUT" | grep -qi "no update available\|already.*latest\|up to date\|running latest"; then
+        log "Tailscale 최신 상태 (${TS_AFTER:-$TS_BEFORE})"
+        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} 최신")
+    elif echo "$UPDATE_OUT" | grep -qi "permission denied\|need.*root\|sudo"; then
+        log "Tailscale 업데이트 권한 부족 (sudo 필요) — 패키지 매니저에 의존"
+        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} (sudo 필요)")
+    else
+        log "Tailscale 업데이트 시도 완료 (${TS_AFTER:-$TS_BEFORE})"
+        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE}")
+    fi
+
+    # tailscaled 데몬 / 연결 상태
+    if tailscale status --json &>/dev/null 2>&1; then
+        TS_JSON=$(tailscale status --json 2>/dev/null)
+        TS_BACKEND=$(echo "$TS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('BackendState','Unknown'))" 2>/dev/null || echo "Unknown")
+        TS_PEERS=$(echo "$TS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('Peer', {})))" 2>/dev/null || echo "0")
+        TS_SELF_IP=$(tailscale ip -4 2>/dev/null | head -1)
+        log "BackendState: ${TS_BACKEND}, Peers: ${TS_PEERS}, Self IP: ${TS_SELF_IP:-none}"
+        case "$TS_BACKEND" in
+            Running)
+                RESULTS+=("Tailscale: 연결됨 (peers ${TS_PEERS}개)")
+                ;;
+            NeedsLogin)
+                ERRORS+=("Tailscale: NeedsLogin — 'sudo tailscale up' 필요")
+                ;;
+            NoState|Stopped)
+                ERRORS+=("Tailscale: ${TS_BACKEND} — 'sudo tailscale up' 필요")
+                ;;
+            *)
+                ERRORS+=("Tailscale: ${TS_BACKEND} (비정상)")
+                ;;
+        esac
+    else
+        log "tailscaled 데몬 미실행 — 상태 확인 불가"
+        ERRORS+=("Tailscale: 데몬 미실행")
+    fi
+else
+    log "Tailscale 미설치 — 건너뜀"
+    SKIPPED+=("Tailscale")
+fi
+
+# ── 19. 텔레그램 보고 ─────────────────────────────────────
 log ""
 log "=== 점검 완료 ==="
 HOSTNAME=$(hostname)
