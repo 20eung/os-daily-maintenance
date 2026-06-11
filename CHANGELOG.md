@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.4.1] - 2026-06-11
+
+### Fixed
+- **보안/OS 업데이트 경고 오해 방지**: 섹션 13이 `apt upgrade` 이전 스냅샷(`_APT_UPGRADABLE_LIST`)을 재사용하던 구조를 수정. 업그레이드 완료 후 현재 시점으로 `apt list --upgradable` 재실행하여 실제로 미처리된 항목만 `⚠️ 오류/경고`에 표시. 정상 처리된 경우 `✔ 최신 상태 > 보안: 최신`으로 보고.
+- 경고 문구 "대기" → "미처리"로 변경하여 실패 케이스임을 명확히 표현.
+
+---
+
 ## [v3.4.0] - 2026-06-08
 
 ### Added
