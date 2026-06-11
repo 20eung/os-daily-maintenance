@@ -745,26 +745,26 @@ ${SW_NAMES}")
 else
     section "보안 업데이트"
     if command -v apt &>/dev/null; then
-        # 섹션 1에서 캡처한 목록 재사용 (apt upgrade 이전 스냅샷)
-        _apt_list="${_APT_UPGRADABLE_LIST:-}"
-        security_updates=$(echo "$_apt_list" | grep -i security | wc -l)
+        # apt upgrade 완료 후 현재 시점 기준으로 재확인 (처리된 항목 제외)
+        _apt_list_now=$(apt list --upgradable 2>/dev/null | grep -v "Listing...")
+        security_updates=$(echo "$_apt_list_now" | grep -i security | wc -l)
         if [ "$security_updates" -gt 0 ]; then
-            log "보안 업데이트: ${security_updates}개 대기중"
-            ERRORS+=("보안 업데이트 ${security_updates}개 필요")
+            log "보안 업데이트: ${security_updates}개 미처리 (업그레이드 실패 가능성)"
+            ERRORS+=("보안 업데이트 ${security_updates}개 미처리")
         else
             log "보안 업데이트: 최신"
             RESULTS+=("보안: 최신")
         fi
-        all_count=$(echo "$_apt_list" | grep -v '^-' | grep -v '^$' | wc -l | tr -d ' ')
-        all_updates=$(echo "$_apt_list" | grep -v '^-' | grep -v '^$' | cut -d'/' -f1 | head -10)
+        all_count=$(echo "$_apt_list_now" | grep -v '^-' | grep -v '^$' | wc -l | tr -d ' ')
         if [ "$all_count" -gt 0 ]; then
+            all_updates=$(echo "$_apt_list_now" | grep -v '^-' | grep -v '^$' | cut -d'/' -f1 | head -10)
             all_names=$(echo "$all_updates" | paste -sd'\n' -)
             [ "$all_count" -gt 10 ] && all_names="${all_names}
 ..."
-            ERRORS+=("OS 업데이트 ${all_count}개 대기:
+            ERRORS+=("OS 업데이트 ${all_count}개 미처리:
 ${all_names}")
         fi
-        unset _apt_list
+        unset _apt_list_now
     fi
 
     # Linux: 커널 업데이트 재부팅 필요 여부
