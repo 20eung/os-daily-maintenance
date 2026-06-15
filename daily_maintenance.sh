@@ -955,7 +955,7 @@ if command -v tailscale &>/dev/null; then
     # cron 환경에서 sudo 프롬프트로 멈추지 않도록 timeout 가드.
     # 패키지 매니저로 설치된 경우 tailscale update 가 자동 거부
     # ("managed by package manager") → 섹션 1 (apt/brew) 에서 이미 처리되었음을 안내.
-    UPDATE_OUT=$(timeout 30 tailscale update --yes 2>&1 || true)
+    UPDATE_OUT=$(timeout 30 sudo tailscale update --yes 2>&1 || true)
     echo "$UPDATE_OUT" >> "$LOG_FILE"
 
     TS_AFTER=$(tailscale version 2>/dev/null | head -1 | awk '{print $1}')
@@ -969,8 +969,8 @@ if command -v tailscale &>/dev/null; then
         log "Tailscale 최신 상태 (${TS_AFTER:-$TS_BEFORE})"
         RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} 최신")
     elif echo "$UPDATE_OUT" | grep -qi "permission denied\|need.*root\|sudo"; then
-        log "Tailscale 업데이트 권한 부족 (sudo 필요) — 패키지 매니저에 의존"
-        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} (sudo 필요)")
+        log "Tailscale 업데이트 권한 부족 — 패키지 매니저에 의존"
+        RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE} (권한 부족)")
     else
         log "Tailscale 업데이트 시도 완료 (${TS_AFTER:-$TS_BEFORE})"
         RESULTS+=("Tailscale: ${TS_AFTER:-$TS_BEFORE}")

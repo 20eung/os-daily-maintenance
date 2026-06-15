@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.4.2] - 2026-06-16
+
+### Fixed
+- **Tailscale 업데이트 sudo 추가**: `tailscale update --yes` 명령에 `sudo` 를 붙여 권한 부족으로 실패하던 문제 수정. 이미 NOPASSWD 권한이 있으므로 cron 환경에서도 정상 동작.
+
+---
+
 ## [v3.4.1] - 2026-06-11
 
 ### Fixed
